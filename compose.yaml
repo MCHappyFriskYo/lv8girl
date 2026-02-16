@@ -1,11 +1,17 @@
+version: "3.9"
+
+services:
   lv8girl:
     image: ghcr.io/nannanwucom/lv8girl:latest
     container_name: lv8girl-server
     ports:
-      - 60009:80
+      - "60009:80"
+    depends_on:
+      - db
+
   db:
     image: mysql:8.4.5
-    container_name: lv8girl-db
+    container_name: lv8girl-wordpress-db
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: rootpasswd
