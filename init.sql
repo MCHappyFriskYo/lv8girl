@@ -1,5 +1,3 @@
-USE lv8girl;
-
 -- 2. 创建用户表 users
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -9,24 +7,9 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 3. 为 users 表添加头像字段（如果不存在）
-SET @col_exists := (
-    SELECT COUNT(*)
-    FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = 'lv8girl_db'
-      AND TABLE_NAME = 'users'
-      AND COLUMN_NAME = 'avatar'
-);
-
-SET @sql := IF(
-    @col_exists = 0,
-    'ALTER TABLE users ADD COLUMN avatar VARCHAR(255) DEFAULT NULL;',
-    'SELECT "avatar column already exists";'
-);
-
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
+-- 3. 为 users 表添加头像字段（如果尚未添加）
+ALTER TABLE users 
+ADD COLUMN avatar VARCHAR(255) DEFAULT NULL;
 
 -- 4. 创建讨论表 discussions
 CREATE TABLE IF NOT EXISTS discussions (
