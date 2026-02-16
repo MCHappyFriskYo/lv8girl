@@ -1160,6 +1160,7 @@ $username = $_SESSION['username'] ?? '';
                 <a href="#">隐私</a>
                 <a href="#">投稿</a>
             </div>
+            <a href="https://icp.gov.moe/?keyword=20260911" target="_blank" style="text-decoration:none;>萌ICP备20260911号</a>
         </footer>
     </div>
 
@@ -1172,4 +1173,5 @@ $username = $_SESSION['username'] ?? '';
         });
     </script>
 </body>
+
 </html>
