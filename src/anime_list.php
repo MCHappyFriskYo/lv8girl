@@ -179,8 +179,11 @@ $current_user_id = $_SESSION['user_id'] ?? 0;
         </div>
 
         <footer class="footer">
-            © 2025 lv8girl · 绿坝娘二次元社区
-        </footer>
+    <div>© 2025 lv8girl · 绿坝娘二次元社区</div>
+    <div class="footer-links">
+        <a href="https://icp.gov.moe/?keyword=20260911" target="_blank">萌ICP备20260911号</a>
+    </div>
+</footer>
     </div>
     <script>
         const themeToggle = document.getElementById('themeToggle');
@@ -191,4 +194,5 @@ $current_user_id = $_SESSION['user_id'] ?? 0;
         });
     </script>
 </body>
+
 </html>
