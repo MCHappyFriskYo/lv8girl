@@ -1,16 +1,18 @@
-version: "3.9"
 services:
   lv8girl:
-    image: ghcr.io/nannanwucom/lv8girl:main
+    image: ghcr.io/mchappyfriskyo/lv8girl:main
     container_name: lv8girl
     ports:
-      - 60009:80
+      - 127.0.0.1:60009:80
     depends_on:
       - db
+    volumes:
+      - ./data:/var/www/html/uploads
+    restart: no
   db:
-    image: mysql:8.4.5
+    image: mysql:5.7.26
     container_name: lv8girl-db
-    restart: always
+    restart: no
     environment:
       MYSQL_ROOT_PASSWORD: rootpasswd
       MYSQL_DATABASE: lv8girl
@@ -19,6 +21,6 @@ services:
     volumes:
       - ./db:/var/lib/mysql
     command:
-      - --mysql-native-password=on
       - --bind-address=0.0.0.0
+    ports: []
 networks: {}
