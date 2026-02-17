@@ -1,18 +1,16 @@
 services:
   lv8girl:
     image: ghcr.io/mchappyfriskyo/lv8girl:main
-    container_name: lv8girl
+    container_name: lv8girl-nnw
     ports:
       - 127.0.0.1:60009:80
     depends_on:
       - db
     volumes:
       - ./data:/var/www/html/uploads
-    restart: no
   db:
-    image: mysql:5.7.26
-    container_name: lv8girl-db
-    restart: no
+    image: mysql:8
+    container_name: lv8girl-db-nnw
     environment:
       MYSQL_ROOT_PASSWORD: rootpasswd
       MYSQL_DATABASE: lv8girl
@@ -20,7 +18,3 @@ services:
       MYSQL_PASSWORD: yourpasswd
     volumes:
       - ./db:/var/lib/mysql
-    command:
-      - --bind-address=0.0.0.0
-    ports: []
-networks: {}
