@@ -4,7 +4,7 @@ FROM php:7.3.4-cli
 ADD --chmod=0755 https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
 
 # 安装 PHP 扩展
-RUN install-php-extensions mysqli pdo_mysql
+RUN install-php-extensions pdo_mysql
 
 # 安装 nginx
 RUN apt-get update && \
