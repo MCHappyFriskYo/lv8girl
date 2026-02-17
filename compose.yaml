@@ -3,7 +3,7 @@ services:
     container_name: lv8girl
     image: ghcr.io/mchappyfriskyo/lv8girl:main
     ports:
-      - 127.0.0.1:60009:80
+      - 60009:80
     depends_on:
       - db
     volumes:
