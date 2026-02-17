@@ -15,7 +15,7 @@ RUN apt-get update && \
 COPY nginx.conf /etc/nginx/nginx.conf
 
 # 复制项目代码
-COPY ../../Downloads/lv8girl-docker-env/lv8girl-docker-env/src /var/www/html/
+COPY src /var/www/html/
 
 # 设置权限（可选）
 RUN chown -R www-data:www-data /var/www/html
