@@ -28,8 +28,11 @@ ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLA
 RUN tar -C / -Jxpf /tmp/s6-overlay-x86_64.tar.xz
 
 # 复制 s6 服务配置到 /etc/services.d/
-COPY s6-overlay/ /etc/services.d/
+COPY s6-overlay/services.d/ /etc/services.d/
 RUN chmod -R +x /etc/services.d/
+
+COPY s6-overlay/cont-init.d/ /etc/cont-init.d/
+RUN chmod -R +x /etc/cont-init.d/
 
 
 ENTRYPOINT ["/init"]
