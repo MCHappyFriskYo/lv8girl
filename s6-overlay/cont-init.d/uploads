@@ -1,4 +1,0 @@
-#!/bin/sh
-
-chown -R root:www-data /var/www/html/uploads
-chmod -R g+w /var/www/html/uploads
