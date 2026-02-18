@@ -12,7 +12,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # 清空默认目录 
-RUN rm -rf /var/www/html/* \ && rm -rf /etc/nginx/modules-enabled/*
+RUN rm -rf /var/www/html/* \ && rm -rf /etc/nginx/sites-enabled/*
 
 # 复制 nginx 配置
 COPY nginx.conf /etc/nginx/conf.d/default.conf
