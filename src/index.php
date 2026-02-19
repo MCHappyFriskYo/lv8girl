@@ -483,7 +483,6 @@ if ($isLoggedIn && $pdo) {
             </div>
             <div class="welcome-message">
                 <p>欢迎来到 lv8girl 论坛，一个 ACG 爱好者的聚集地。</p>
-                <p>论坛交流群：<a href="#">964148153</a> 感谢支持与陪伴 &gt;ᴗoಣ</p>
             </div>
             <div class="qq-group">
                 🍀 绿坝娘 · 守护你的二次元
@@ -589,3 +588,4 @@ if ($isLoggedIn && $pdo) {
     </script>
 </body>
 </html>
+
