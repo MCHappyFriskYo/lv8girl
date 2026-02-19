@@ -4,7 +4,7 @@ session_start();
 $host = 'db';
 $dbname = 'lv8girl';
 $db_user = 'lv8girl';
-$db_pass = 'yourpasswd';
+$db_pass = 'yourpasswd'; // 请修改为实际密码
 
 try {
     $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $db_user, $db_pass);
@@ -20,8 +20,17 @@ if (!$user_id) {
     exit;
 }
 
-// 获取用户信息
-$stmt = $pdo->prepare("SELECT id, username, email, avatar, created_at, role FROM users WHERE id = ?");
+// 处理签名更新（仅本人操作）
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_signature']) && $user_id == ($_SESSION['user_id'] ?? 0)) {
+    $signature = trim($_POST['signature'] ?? '');
+    $stmt = $pdo->prepare("UPDATE users SET signature = ? WHERE id = ?");
+    $stmt->execute([$signature, $user_id]);
+    header("Location: profile.php?id=$user_id&updated=1");
+    exit;
+}
+
+// 获取用户信息（包含签名）
+$stmt = $pdo->prepare("SELECT id, username, email, avatar, created_at, role, signature FROM users WHERE id = ?");
 $stmt->execute([$user_id]);
 $user = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$user) {
@@ -53,6 +62,8 @@ if (isset($_GET['success'])) {
     $message = '<div class="success-message">' . htmlspecialchars($_GET['success']) . '</div>';
 } elseif (isset($_GET['error'])) {
     $message = '<div class="error-message">' . htmlspecialchars($_GET['error']) . '</div>';
+} elseif (isset($_GET['updated'])) {
+    $message = '<div class="success-message">个性签名已更新！</div>';
 }
 ?>
 <!DOCTYPE html>
@@ -264,6 +275,13 @@ if (isset($_GET['success'])) {
             color: var(--text-soft);
             margin-bottom: 5px;
         }
+        .profile-signature {
+            margin-top: 10px;
+            padding: 10px 0;
+            border-top: 1px solid var(--border-light);
+            color: var(--text-soft);
+            font-style: italic;
+        }
         .profile-stats {
             display: flex;
             gap: 30px;
@@ -297,7 +315,7 @@ if (isset($_GET['success'])) {
         .edit-btn:hover {
             transform: scale(1.02);
         }
-        .avatar-upload-form {
+        .avatar-upload-form, .signature-edit-form {
             margin-top: 15px;
             padding: 15px;
             background: var(--surface-light);
@@ -314,6 +332,17 @@ if (isset($_GET['success'])) {
             padding: 8px 16px;
             width: 100%;
             color: var(--text);
+        }
+        .signature-edit-form textarea {
+            width: 100%;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 10px 15px;
+            color: var(--text);
+            resize: vertical;
+            min-height: 80px;
+            margin-bottom: 10px;
         }
 
         /* 帖子列表 */
@@ -489,22 +518,38 @@ if (isset($_GET['success'])) {
                 <h1><?php echo htmlspecialchars($user['username']); ?></h1>
                 <p>邮箱：<?php echo htmlspecialchars($user['email']); ?></p>
                 <p>注册时间：<?php echo date('Y-m-d', strtotime($user['created_at'])); ?></p>
+                <?php if (!empty($user['signature'])): ?>
+                    <div class="profile-signature">
+                        ✍️ <?php echo nl2br(htmlspecialchars($user['signature'])); ?>
+                    </div>
+                <?php endif; ?>
                 <div class="profile-stats">
                     <div class="stat-item">
                         <div class="stat-number"><?php echo $post_count; ?></div>
                         <div class="stat-label">帖子</div>
                     </div>
-                    <!-- 可扩展关注/粉丝 -->
                 </div>
 
                 <?php if ($is_owner): ?>
-                    <button class="edit-btn" onclick="toggleUpload()">修改头像</button>
-                    <div id="uploadForm" style="display: none;" class="avatar-upload-form">
+                    <button class="edit-btn" onclick="toggleSection('avatarForm')">修改头像</button>
+                    <button class="edit-btn" onclick="toggleSection('signatureForm')" style="margin-left:10px;">编辑个性签名</button>
+                    
+                    <!-- 头像上传表单 -->
+                    <div id="avatarForm" style="display: none;" class="avatar-upload-form">
                         <form action="upload_avatar.php" method="post" enctype="multipart/form-data">
                             <div class="file-input">
                                 <input type="file" name="avatar" accept="image/*" required>
                             </div>
                             <button type="submit" class="edit-btn">上传新头像</button>
+                        </form>
+                    </div>
+
+                    <!-- 个性签名编辑表单 -->
+                    <div id="signatureForm" style="display: none;" class="signature-edit-form">
+                        <form method="post">
+                            <input type="hidden" name="update_signature" value="1">
+                            <textarea name="signature" placeholder="写一句个性签名吧……"><?php echo htmlspecialchars($user['signature'] ?? ''); ?></textarea>
+                            <button type="submit" class="edit-btn">保存签名</button>
                         </form>
                     </div>
                 <?php else: ?>
@@ -565,7 +610,8 @@ if (isset($_GET['success'])) {
         <div class="footer">
             <div>© 2025 lv8girl · 绿坝娘二次元论坛</div>
             <div>
-                <a href="#">关于</a>
+                <a href="about.php">关于</a>
+                <a href="rules.php">站规</a>
                 <a href="#">帮助</a>
                 <a href="#">隐私</a>
                 <a href="#">投稿</a>
@@ -581,9 +627,13 @@ if (isset($_GET['success'])) {
             themeToggle.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌓';
         });
 
-        function toggleUpload() {
-            var form = document.getElementById('uploadForm');
-            form.style.display = form.style.display === 'none' ? 'block' : 'none';
+        function toggleSection(id) {
+            var form = document.getElementById(id);
+            if (form.style.display === 'none' || form.style.display === '') {
+                form.style.display = 'block';
+            } else {
+                form.style.display = 'none';
+            }
         }
     </script>
 </body>
