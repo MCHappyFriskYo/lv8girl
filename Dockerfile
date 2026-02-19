@@ -1,12 +1,10 @@
-FROM php:8.4-fpm
+FROM php:8.4-fpm-alpine
 
 # 安装 Nginx 和 Supervisor
-RUN apt-get update && \
-    apt-get install -y nginx supervisor && \
-    rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache nginx supervisor
 
-# 清理nginx目录
-RUN rm -rf /var/www/html/* && rm -rf /etc/nginx/sites-enabled/*
+# 清理 nginx 默认目录
+RUN rm -rf /var/www/html/* && rm -rf /etc/nginx/conf.d/*
 
 # 安装 PHP 扩展安装器
 ADD --chmod=0755 https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
