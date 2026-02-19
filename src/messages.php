@@ -318,7 +318,7 @@ usort($conversations, function($a, $b) {
                     $last = $conv['last_msg'];
                     $is_from_me = $last['from_user_id'] == $user_id;
                 ?>
-                <a href="conversation.php?user=<?php echo $other['id']; ?>" class="conversation-item">
+                <a href="send_message.php?user=<?php echo $other['id']; ?>" class="conversation-item">
                     <div class="avatar">
                         <?php if ($other['avatar'] && file_exists($other['avatar'])): ?>
                             <img src="<?php echo htmlspecialchars($other['avatar']); ?>" alt="">
@@ -363,4 +363,5 @@ usort($conversations, function($a, $b) {
         });
     </script>
 </body>
+
 </html>
