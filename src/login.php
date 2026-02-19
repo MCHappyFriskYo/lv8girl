@@ -9,23 +9,31 @@ if (isset($_SESSION['user_id'])) {
 
 $error = '';
 
-// 数据库配置
-$host = 'db';
+// 数据库配置 - 请根据实际情况修改
+$host = 'db';          // 如果使用本地环境，可改为 'localhost'
 $dbname = 'lv8girl';
 $db_user = 'lv8girl';
-$db_pass = 'yourpasswd'; // 请修改为实际密码
+$db_pass = 'yourpasswd'; // ⚠️ 必须修改为实际密码
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $login = trim($_POST['login'] ?? ''); // 用户名或邮箱
+// 尝试连接数据库
+try {
+    $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $db_user, $db_pass);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+} catch (PDOException $e) {
+    // 连接失败时，记录错误信息并显示给用户（调试时可查看具体错误，生产环境建议隐藏细节）
+    $error = '数据库连接失败：' . $e->getMessage();
+    // 如果不想暴露详细错误，可以改为：
+    // $error = '数据库连接失败，请检查配置或联系管理员。';
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($error)) {
+    $login = trim($_POST['login'] ?? '');
     $password = $_POST['password'] ?? '';
 
     if (empty($login) || empty($password)) {
         $error = '请输入用户名/邮箱和密码';
     } else {
         try {
-            $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $db_user, $db_pass);
-            $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
             // 查询用户（通过用户名或邮箱），同时获取角色和状态
             $stmt = $pdo->prepare("SELECT id, username, password_hash, role, status FROM users WHERE username = ? OR email = ?");
             $stmt->execute([$login, $login]);
@@ -56,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = '用户名/邮箱或密码错误';
             }
         } catch (PDOException $e) {
-            $error = '数据库连接失败，请稍后重试';
+            $error = '数据库查询失败：' . $e->getMessage();
         }
     }
 }
@@ -68,6 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>lv8girl · 登录</title>
     <style>
+        /* 样式保持不变（与之前相同） */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
             --bg: #f0f7f0;
@@ -175,6 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             border-radius: 8px;
             margin-bottom: 20px;
             font-size: 0.9rem;
+            word-break: break-word;
         }
         .form-group {
             margin-bottom: 20px;
