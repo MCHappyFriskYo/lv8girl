@@ -13,7 +13,7 @@ $error = '';
 $host = 'db';
 $dbname = 'lv8girl';
 $db_user = 'lv8girl';
-$db_pass = 'yourpasswd';
+$db_pass = 'yourpasswd'; // 请修改为实际密码
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $login = trim($_POST['login'] ?? ''); // 用户名或邮箱
@@ -26,22 +26,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $db_user, $db_pass);
             $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-            // 查询用户（通过用户名或邮箱），同时获取角色
-            $stmt = $pdo->prepare("SELECT id, username, password_hash, role FROM users WHERE username = ? OR email = ?");
+            // 查询用户（通过用户名或邮箱），同时获取角色和状态
+            $stmt = $pdo->prepare("SELECT id, username, password_hash, role, status FROM users WHERE username = ? OR email = ?");
             $stmt->execute([$login, $login]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if ($user && password_verify($password, $user['password_hash'])) {
-                // 检查是否被封禁
-                if ($user['role'] === 'banned') {
-                    $error = '您的账号已被封禁，请联系管理员';
+                // 检查用户状态
+                if ($user['status'] === 'pending') {
+                    $error = '您的账号正在等待管理员审核，请耐心等待。';
+                } elseif ($user['status'] === 'rejected') {
+                    $error = '您的账号审核未通过，无法登录。如有疑问，请联系管理员。';
+                } elseif ($user['status'] === 'approved') {
+                    // 检查是否被封禁
+                    if ($user['role'] === 'banned') {
+                        $error = '您的账号已被封禁，请联系管理员';
+                    } else {
+                        // 登录成功，设置 Session
+                        $_SESSION['user_id'] = $user['id'];
+                        $_SESSION['username'] = $user['username'];
+                        $_SESSION['user_role'] = $user['role'];
+                        header('Location: index.php');
+                        exit;
+                    }
                 } else {
-                    // 登录成功，设置 Session
-                    $_SESSION['user_id'] = $user['id'];
-                    $_SESSION['username'] = $user['username'];
-                    $_SESSION['user_role'] = $user['role'];
-                    header('Location: index.php');
-                    exit;
+                    $error = '账号状态异常，请联系管理员';
                 }
             } else {
                 $error = '用户名/邮箱或密码错误';
@@ -235,13 +244,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
     <div class="login-wrapper">
-        <!-- 头部：logo + 主题切换 -->
         <div class="header">
             <div class="logo">lv8girl<span>绿坝娘</span></div>
             <div class="theme-toggle" id="themeToggle">🌓</div>
         </div>
 
-        <!-- 登录卡片 -->
         <div class="card">
             <h2>登录</h2>
 
