@@ -5,83 +5,107 @@ session_start();
 $host = 'db';
 $dbname = 'lv8girl';
 $db_user = 'lv8girl';
-$db_pass = 'yourpasswd';
-
-// 初始化变量
-$isLoggedIn = isset($_SESSION['user_id']);
-$current_user_id = $_SESSION['user_id'] ?? 0;
-$username = $_SESSION['username'] ?? '';
-$user_role = $_SESSION['user_role'] ?? '';
+$db_pass = 'yourpasswd'; // ⚠️ 请修改为实际密码
 
 try {
     $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $db_user, $db_pass);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 } catch (PDOException $e) {
-    $pdo = null; // 连接失败时后续查询返回空
+    $pdo = null;
 }
 
-// 获取未读私信数
-$unread_count = 0;
-if ($isLoggedIn && $pdo) {
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM private_messages WHERE to_user_id = ? AND is_read = 0");
-    $stmt->execute([$current_user_id]);
-    $unread_count = $stmt->fetchColumn();
-}
+// 定义登录状态变量
+$isLoggedIn = isset($_SESSION['user_id']);
+$current_user_id = $_SESSION['user_id'] ?? 0;
+$username = $_SESSION['username'] ?? '';
+$user_role = $_SESSION['user_role'] ?? '';
 
 // 更新当前用户的最后活动时间（如果已登录）
 if ($isLoggedIn && $pdo) {
-    $stmt = $pdo->prepare("UPDATE users SET last_active = NOW() WHERE id = ?");
-    $stmt->execute([$current_user_id]);
+    try {
+        $stmt = $pdo->prepare("UPDATE users SET last_active = NOW() WHERE id = ?");
+        $stmt->execute([$current_user_id]);
+    } catch (PDOException $e) {
+        // 忽略错误
+    }
 }
 
 // 获取在线用户数（最近5分钟内有活动）
 $online_count = 0;
 if ($pdo) {
-    $stmt = $pdo->query("SELECT COUNT(*) FROM users WHERE last_active > DATE_SUB(NOW(), INTERVAL 5 MINUTE)");
-    $online_count = $stmt->fetchColumn();
+    try {
+        $stmt = $pdo->query("SELECT COUNT(*) FROM users WHERE last_active > DATE_SUB(NOW(), INTERVAL 5 MINUTE)");
+        $online_count = $stmt->fetchColumn();
+    } catch (PDOException $e) {
+        $online_count = 0;
+    }
 }
 
-// 获取帖子列表（仅显示已审核的帖子）
+// 获取帖子列表（仅显示已审核的帖子，并按置顶状态排序）
 $posts = [];
 if ($pdo) {
-    $stmt = $pdo->query("
-        SELECT 
-            d.*, 
-            u.username, 
-            u.avatar,
-            COALESCE(l.like_count, 0) AS like_count,
-            COALESCE(c.comment_count, 0) AS comment_count
-        FROM discussions d 
-        JOIN users u ON d.user_id = u.id 
-        LEFT JOIN (
-            SELECT post_id, COUNT(*) AS like_count 
-            FROM likes 
-            GROUP BY post_id
-        ) l ON d.id = l.post_id
-        LEFT JOIN (
-            SELECT post_id, COUNT(*) AS comment_count 
-            FROM comments 
-            GROUP BY post_id
-        ) c ON d.id = c.post_id
-        WHERE d.status = 'approved'  -- 只显示已审核的帖子
-        ORDER BY d.created_at DESC 
-        LIMIT 30
-    ");
-    $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    try {
+        $stmt = $pdo->query("
+            SELECT 
+                d.*, 
+                u.username, 
+                u.avatar,
+                COALESCE(l.like_count, 0) AS like_count,
+                COALESCE(c.comment_count, 0) AS comment_count
+            FROM discussions d 
+            JOIN users u ON d.user_id = u.id 
+            LEFT JOIN (
+                SELECT post_id, COUNT(*) AS like_count 
+                FROM likes 
+                GROUP BY post_id
+            ) l ON d.id = l.post_id
+            LEFT JOIN (
+                SELECT post_id, COUNT(*) AS comment_count 
+                FROM comments 
+                GROUP BY post_id
+            ) c ON d.id = c.post_id
+            WHERE d.status = 'approved'
+            ORDER BY d.is_pinned DESC, d.created_at DESC 
+            LIMIT 30
+        ");
+        $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        $posts = [];
+    }
 }
 
 // 统计帖子总数（仅已审核）
 $post_count = 0;
 if ($pdo) {
-    $stmt = $pdo->query("SELECT COUNT(*) FROM discussions WHERE status = 'approved'");
-    $post_count = $stmt->fetchColumn();
+    try {
+        $stmt = $pdo->query("SELECT COUNT(*) FROM discussions WHERE status = 'approved'");
+        $post_count = $stmt->fetchColumn();
+    } catch (PDOException $e) {
+        $post_count = 0;
+    }
 }
 
 // 统计用户总数
 $user_count = 0;
 if ($pdo) {
-    $stmt = $pdo->query("SELECT COUNT(*) FROM users");
-    $user_count = $stmt->fetchColumn();
+    try {
+        $stmt = $pdo->query("SELECT COUNT(*) FROM users");
+        $user_count = $stmt->fetchColumn();
+    } catch (PDOException $e) {
+        $user_count = 0;
+    }
+}
+
+// 获取未读私信数（仅登录用户）
+$unread_count = 0;
+if ($isLoggedIn && $pdo) {
+    try {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM private_messages WHERE to_user_id = ? AND is_read = 0");
+        $stmt->execute([$current_user_id]);
+        $unread_count = $stmt->fetchColumn();
+    } catch (PDOException $e) {
+        $unread_count = 0;
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -199,7 +223,7 @@ if ($pdo) {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 12px;
-            min-width: 140px;
+            min-width: 160px;
             opacity: 0;
             visibility: hidden;
             transform: translateY(-10px);
@@ -217,7 +241,6 @@ if ($pdo) {
             color: var(--text);
             text-decoration: none;
             border-bottom: 1px solid var(--border);
-            background: transparent;
         }
         .dropdown a:last-child { border-bottom: none; }
         .dropdown a:hover { background: var(--surface-light); }
@@ -331,6 +354,9 @@ if ($pdo) {
             font-size: 1.3rem;
             font-weight: 700;
             margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         .post-title a {
             color: var(--text);
@@ -338,6 +364,14 @@ if ($pdo) {
         }
         .post-title a:hover {
             color: var(--accent);
+        }
+        .pinned-tag {
+            background: var(--accent);
+            color: var(--primary-dark);
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 30px;
         }
         .post-excerpt {
             color: var(--text-soft);
@@ -425,14 +459,14 @@ if ($pdo) {
                 <div class="logo">lv8girl<span>绿坝娘</span></div>
                 <div class="user-area">
                     <?php if ($isLoggedIn): ?>
+                        <a href="messages.php">私信<?php if ($unread_count > 0): ?><span style="background:#ff6b6b; color:white; border-radius:50%; padding:2px 6px; font-size:0.7rem; margin-left:5px;"><?php echo $unread_count; ?></span><?php endif; ?></a>
                         <div class="user-menu">
                             <span class="user-name"><?php echo htmlspecialchars($username); ?> ▼</span>
                             <div class="dropdown">
-                            <?php if ($user_role === 'admin'): ?>
-                                <a href="admin.php">管理面板</a>
-                            <?php endif; ?>
+                                <?php if ($user_role === 'admin'): ?>
+                                    <a href="admin.php">管理面板</a>
+                                <?php endif; ?>
                                 <a href="profile.php">个人主页</a>
-                                <a href="messages.php">私信</a>
                                 <a href="post_discussion.php">发表新帖</a>
                                 <a href="my_posts.php">我的帖子</a>
                                 <a href="#">收藏夹</a>
@@ -449,6 +483,7 @@ if ($pdo) {
             </div>
             <div class="welcome-message">
                 <p>欢迎来到 lv8girl 论坛，一个 ACG 爱好者的聚集地。</p>
+                <p>论坛交流群：<a href="#">964148153</a> 感谢支持与陪伴 &gt;ᴗoಣ</p>
             </div>
             <div class="qq-group">
                 🍀 绿坝娘 · 守护你的二次元
@@ -485,6 +520,9 @@ if ($pdo) {
                                     <span class="post-time"><?php echo date('Y-m-d H:i', strtotime($post['created_at'])); ?></span>
                                 </div>
                                 <div class="post-title">
+                                    <?php if ($post['is_pinned']): ?>
+                                        <span class="pinned-tag">📌 置顶</span>
+                                    <?php endif; ?>
                                     <a href="post.php?id=<?php echo $post['id']; ?>">
                                         <?php echo htmlspecialchars($post['title']); ?>
                                     </a>
@@ -532,7 +570,8 @@ if ($pdo) {
         <div class="footer">
             <div>© 2025 lv8girl · 绿坝娘二次元论坛</div>
             <div>
-                <a href="#">关于</a>
+                <a href="about.php">关于</a>
+                <a href="rules.php">站规</a>
                 <a href="#">帮助</a>
                 <a href="#">隐私</a>
                 <a href="#">投稿</a>
@@ -549,5 +588,4 @@ if ($pdo) {
         });
     </script>
 </body>
-
 </html>
