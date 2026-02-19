@@ -11,7 +11,7 @@ if (!isset($_SESSION['user_id']) || $_SESSION['user_role'] !== 'admin') {
 $host = 'db';
 $dbname = 'lv8girl';
 $db_user = 'lv8girl';
-$db_pass = 'yourpasswd';
+$db_pass = 'yourpasswd'; // 请修改为实际密码
 
 try {
     $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $db_user, $db_pass);
@@ -26,7 +26,7 @@ $username = $_SESSION['username'] ?? '';
 // 获取当前页面参数，默认为仪表盘
 $page = isset($_GET['page']) ? $_GET['page'] : 'dashboard';
 
-// 处理审核操作（通过/拒绝）
+// 处理帖子审核操作（通过/拒绝）
 if (isset($_GET['action']) && isset($_GET['id']) && $page === 'pending_posts') {
     $action = $_GET['action'];
     $id = (int)$_GET['id'];
@@ -39,6 +39,33 @@ if (isset($_GET['action']) && isset($_GET['id']) && $page === 'pending_posts') {
         $stmt = $pdo->prepare("UPDATE discussions SET status = 'rejected' WHERE id = ?");
         $stmt->execute([$id]);
         header('Location: admin.php?page=pending_posts&msg=帖子已拒绝');
+        exit;
+    }
+}
+
+// 处理用户审核操作（通过/拒绝）
+if (isset($_GET['action']) && isset($_GET['id']) && $page === 'pending_users') {
+    $action = $_GET['action'];
+    $id = (int)$_GET['id'];
+    if ($action === 'approve_user') {
+        // 通过审核
+        $stmt = $pdo->prepare("UPDATE users SET status = 'approved' WHERE id = ?");
+        $stmt->execute([$id]);
+        // 发送私信通知用户
+        $content = "恭喜！您的账号已通过管理员审核，现在可以正常登录使用了。";
+        $stmt_msg = $pdo->prepare("INSERT INTO private_messages (from_user_id, to_user_id, content) VALUES (?, ?, ?)");
+        $stmt_msg->execute([$current_user_id, $id, $content]);
+        header('Location: admin.php?page=pending_users&msg=用户已通过审核');
+        exit;
+    } elseif ($action === 'reject_user') {
+        // 拒绝审核（标记为拒绝）
+        $stmt = $pdo->prepare("UPDATE users SET status = 'rejected' WHERE id = ?");
+        $stmt->execute([$id]);
+        // 发送私信通知用户
+        $content = "您的账号审核未通过。如有疑问，请联系管理员。";
+        $stmt_msg = $pdo->prepare("INSERT INTO private_messages (from_user_id, to_user_id, content) VALUES (?, ?, ?)");
+        $stmt_msg->execute([$current_user_id, $id, $content]);
+        header('Location: admin.php?page=pending_users&msg=用户已拒绝');
         exit;
     }
 }
@@ -69,13 +96,21 @@ if (isset($_GET['action']) && isset($_GET['id'])) {
     }
 }
 
-// 处理角色修改
+// 处理角色修改（同时处理封禁私信）
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['user_id']) && isset($_POST['new_role'])) {
     $target_user_id = (int)$_POST['user_id'];
     $new_role = $_POST['new_role'];
     if ($target_user_id != $current_user_id) {
         $stmt = $pdo->prepare("UPDATE users SET role = ? WHERE id = ?");
         $stmt->execute([$new_role, $target_user_id]);
+
+        // 如果封禁用户，则发送私信通知
+        if ($new_role === 'banned') {
+            $content = "您的账号已被管理员封禁。如有疑问，请联系管理员。";
+            $stmt_msg = $pdo->prepare("INSERT INTO private_messages (from_user_id, to_user_id, content) VALUES (?, ?, ?)");
+            $stmt_msg->execute([$current_user_id, $target_user_id, $content]);
+        }
+
         header('Location: admin.php?page=users&msg=用户角色已更新');
         exit;
     } else {
@@ -104,25 +139,23 @@ if ($pdo) {
     <title>管理面板 · lv8girl</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        /* 高级配色：深蓝灰背景，金色点缀，柔和文本 */
         :root {
-            --bg: #0f0f1a;              /* 深蓝黑背景 */
-            --surface: #1a1a2f;          /* 卡片背景 */
-            --surface-light: #252540;     /* 浅色表面 */
-            --border: #2d2d4a;            /* 边框 */
-            --border-light: #3a3a5a;       /* 浅边框 */
-            --text: #e0e0f0;              /* 主文本 */
-            --text-soft: #b0b0d0;          /* 次要文本 */
-            --text-hint: #8080a0;          /* 提示文本 */
-            --primary: #c5a572;            /* 金色主色 */
-            --primary-light: #d4b78c;       /* 浅金色 */
-            --accent: #a58e6d;              /* 深金色 */
-            --accent-dark: #7a684c;          /* 暗金色 */
-            --gradient: linear-gradient(135deg, #c5a572, #9a7e5a); /* 金色渐变 */
+            --bg: #0f0f1a;
+            --surface: #1a1a2f;
+            --surface-light: #252540;
+            --border: #2d2d4a;
+            --border-light: #3a3a5a;
+            --text: #e0e0f0;
+            --text-soft: #b0b0d0;
+            --text-hint: #8080a0;
+            --primary: #c5a572;
+            --primary-light: #d4b78c;
+            --accent: #a58e6d;
+            --accent-dark: #7a684c;
+            --gradient: linear-gradient(135deg, #c5a572, #9a7e5a);
             --sidebar-width: 220px;
         }
         body.dark-mode {
-            /* 深色模式可保持相近，或稍作变化，这里沿用同一套即可 */
             --bg: #0f0f1a;
             --surface: #1a1a2f;
             --surface-light: #252540;
@@ -246,14 +279,12 @@ if ($pdo) {
             color: var(--bg);
         }
 
-        /* 统计卡片网格 */
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 20px;
             margin-bottom: 30px;
         }
-        /* 卡片样式：使用flex布局确保内容居中 */
         .stat-card {
             background: var(--surface);
             border: 1px solid var(--border);
@@ -277,7 +308,6 @@ if ($pdo) {
             font-size: 0.95rem;
         }
 
-        /* 帖子总数卡片内嵌统计 */
         .post-stat-detail {
             margin-top: 15px;
             border-top: 1px solid var(--border-light);
@@ -423,6 +453,7 @@ if ($pdo) {
             <ul class="sidebar-menu">
                 <li><a href="admin.php?page=dashboard" class="<?php echo $page === 'dashboard' ? 'active' : ''; ?>">📊 仪表盘</a></li>
                 <li><a href="admin.php?page=pending_posts" class="<?php echo $page === 'pending_posts' ? 'active' : ''; ?>">⏳ 待审核帖子</a></li>
+                <li><a href="admin.php?page=pending_users" class="<?php echo $page === 'pending_users' ? 'active' : ''; ?>">👥 待审核用户</a></li>
                 <li><a href="admin.php?page=posts" class="<?php echo $page === 'posts' ? 'active' : ''; ?>">📝 帖子管理</a></li>
                 <li><a href="admin.php?page=users" class="<?php echo $page === 'users' ? 'active' : ''; ?>">👥 用户管理</a></li>
                 <li><a href="admin.php?page=comments" class="<?php echo $page === 'comments' ? 'active' : ''; ?>">💬 评论管理</a></li>
@@ -440,6 +471,7 @@ if ($pdo) {
                     $titles = [
                         'dashboard' => '仪表盘',
                         'pending_posts' => '待审核帖子',
+                        'pending_users' => '待审核用户',
                         'posts' => '帖子管理',
                         'users' => '用户管理',
                         'comments' => '评论管理',
@@ -461,7 +493,6 @@ if ($pdo) {
             <?php if ($page === 'dashboard'): ?>
                 <!-- 仪表盘 -->
                 <div class="stats-grid">
-                    <!-- 帖子总数卡片（内含通过/拒绝明细） -->
                     <div class="stat-card">
                         <div class="stat-number"><?php echo number_format($stats['posts']); ?></div>
                         <div class="stat-label">帖子总数</div>
@@ -476,7 +507,6 @@ if ($pdo) {
                             </div>
                         </div>
                     </div>
-                    <!-- 其他统计卡片 -->
                     <div class="stat-card">
                         <div class="stat-number"><?php echo number_format($stats['users']); ?></div>
                         <div class="stat-label">注册用户</div>
@@ -527,6 +557,39 @@ if ($pdo) {
                                 <td class="actions">
                                     <a href="admin.php?page=pending_posts&action=approve&id=<?php echo $row['id']; ?>" class="approve" onclick="return confirm('通过审核？')">通过</a>
                                     <a href="admin.php?page=pending_posts&action=reject&id=<?php echo $row['id']; ?>" class="delete" onclick="return confirm('拒绝审核？')">拒绝</a>
+                                </td>
+                            </tr>
+                            <?php endwhile; ?>
+                        </tbody>
+                    </table>
+                </div>
+
+            <?php elseif ($page === 'pending_users'): ?>
+                <!-- 待审核用户 -->
+                <div class="table-card">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>用户名</th>
+                                <th>邮箱</th>
+                                <th>注册时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $stmt = $pdo->query("SELECT id, username, email, created_at FROM users WHERE status = 'pending' ORDER BY created_at ASC");
+                            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)):
+                            ?>
+                            <tr>
+                                <td><?php echo $row['id']; ?></td>
+                                <td><?php echo htmlspecialchars($row['username']); ?></td>
+                                <td><?php echo htmlspecialchars($row['email']); ?></td>
+                                <td><?php echo date('Y-m-d H:i', strtotime($row['created_at'])); ?></td>
+                                <td class="actions">
+                                    <a href="admin.php?page=pending_users&action=approve_user&id=<?php echo $row['id']; ?>" class="approve" onclick="return confirm('通过审核？')">通过</a>
+                                    <a href="admin.php?page=pending_users&action=reject_user&id=<?php echo $row['id']; ?>" class="delete" onclick="return confirm('拒绝审核？')">拒绝</a>
                                 </td>
                             </tr>
                             <?php endwhile; ?>
@@ -592,7 +655,7 @@ if ($pdo) {
                 </div>
 
             <?php elseif ($page === 'users'): ?>
-                <!-- 用户管理 -->
+                <!-- 用户管理（含状态） -->
                 <div class="table-card">
                     <table>
                         <thead>
@@ -601,6 +664,7 @@ if ($pdo) {
                                 <th>用户名</th>
                                 <th>邮箱</th>
                                 <th>角色</th>
+                                <th>状态</th>
                                 <th>注册时间</th>
                                 <th>最后活动</th>
                                 <th>帖子数</th>
@@ -618,6 +682,11 @@ if ($pdo) {
                                 ORDER BY u.id
                             ");
                             while ($row = $stmt->fetch(PDO::FETCH_ASSOC)):
+                                $status_text = [
+                                    'pending' => '待审核',
+                                    'approved' => '已通过',
+                                    'rejected' => '已拒绝'
+                                ];
                             ?>
                             <tr>
                                 <td><?php echo $row['id']; ?></td>
@@ -643,6 +712,7 @@ if ($pdo) {
                                         </form>
                                     <?php endif; ?>
                                 </td>
+                                <td><?php echo $status_text[$row['status']] ?? $row['status']; ?></td>
                                 <td><?php echo date('Y-m-d H:i', strtotime($row['created_at'])); ?></td>
                                 <td><?php echo $row['last_active'] ? date('Y-m-d H:i', strtotime($row['last_active'])) : '从未'; ?></td>
                                 <td><?php echo number_format($row['post_count']); ?></td>
