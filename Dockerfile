@@ -14,7 +14,7 @@ RUN install-php-extensions pdo_mysql
 
 
 # 复制 nginx 配置
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/nginx.conf
 
 # 复制 Supervisor 配置
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
