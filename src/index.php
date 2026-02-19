@@ -432,6 +432,7 @@ if ($pdo) {
                                 <a href="admin.php">管理面板</a>
                             <?php endif; ?>
                                 <a href="profile.php">个人主页</a>
+                                <a href="messages.php">私信</a>
                                 <a href="post_discussion.php">发表新帖</a>
                                 <a href="my_posts.php">我的帖子</a>
                                 <a href="#">收藏夹</a>
@@ -548,4 +549,5 @@ if ($pdo) {
         });
     </script>
 </body>
+
 </html>
