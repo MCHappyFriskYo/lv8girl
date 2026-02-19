@@ -7,13 +7,11 @@ $dbname = 'lv8girl';
 $db_user = 'lv8girl';
 $db_pass = 'yourpasswd';
 
-// 获取未读私信数
-$unread_count = 0;
-if ($isLoggedIn && $pdo) {
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM private_messages WHERE to_user_id = ? AND is_read = 0");
-    $stmt->execute([$current_user_id]);
-    $unread_count = $stmt->fetchColumn();
-}
+// 初始化变量
+$isLoggedIn = isset($_SESSION['user_id']);
+$current_user_id = $_SESSION['user_id'] ?? 0;
+$username = $_SESSION['username'] ?? '';
+$user_role = $_SESSION['user_role'] ?? '';
 
 try {
     $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $db_user, $db_pass);
@@ -22,10 +20,13 @@ try {
     $pdo = null; // 连接失败时后续查询返回空
 }
 
-$isLoggedIn = isset($_SESSION['user_id']);
-$current_user_id = $_SESSION['user_id'] ?? 0;
-$username = $_SESSION['username'] ?? '';
-$user_role = $_SESSION['user_role'] ?? '';
+// 获取未读私信数
+$unread_count = 0;
+if ($isLoggedIn && $pdo) {
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM private_messages WHERE to_user_id = ? AND is_read = 0");
+    $stmt->execute([$current_user_id]);
+    $unread_count = $stmt->fetchColumn();
+}
 
 // 更新当前用户的最后活动时间（如果已登录）
 if ($isLoggedIn && $pdo) {
