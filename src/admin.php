@@ -48,7 +48,6 @@ if (isset($_GET['action']) && isset($_GET['id']) && $page === 'pending_users') {
     $action = $_GET['action'];
     $id = (int)$_GET['id'];
     if ($action === 'approve_user') {
-        // 通过审核
         $stmt = $pdo->prepare("UPDATE users SET status = 'approved' WHERE id = ?");
         $stmt->execute([$id]);
         // 发送私信通知用户
@@ -58,14 +57,29 @@ if (isset($_GET['action']) && isset($_GET['id']) && $page === 'pending_users') {
         header('Location: admin.php?page=pending_users&msg=用户已通过审核');
         exit;
     } elseif ($action === 'reject_user') {
-        // 拒绝审核（标记为拒绝）
         $stmt = $pdo->prepare("UPDATE users SET status = 'rejected' WHERE id = ?");
         $stmt->execute([$id]);
-        // 发送私信通知用户
         $content = "您的账号审核未通过。如有疑问，请联系管理员。";
         $stmt_msg = $pdo->prepare("INSERT INTO private_messages (from_user_id, to_user_id, content) VALUES (?, ?, ?)");
         $stmt_msg->execute([$current_user_id, $id, $content]);
         header('Location: admin.php?page=pending_users&msg=用户已拒绝');
+        exit;
+    }
+}
+
+// 处理帖子置顶/取消置顶
+if (isset($_GET['action']) && isset($_GET['id']) && $page === 'posts') {
+    $action = $_GET['action'];
+    $id = (int)$_GET['id'];
+    if ($action === 'pin') {
+        $stmt = $pdo->prepare("UPDATE discussions SET is_pinned = 1 WHERE id = ?");
+        $stmt->execute([$id]);
+        header('Location: admin.php?page=posts&msg=帖子已置顶');
+        exit;
+    } elseif ($action === 'unpin') {
+        $stmt = $pdo->prepare("UPDATE discussions SET is_pinned = 0 WHERE id = ?");
+        $stmt->execute([$id]);
+        header('Location: admin.php?page=posts&msg=已取消置顶');
         exit;
     }
 }
@@ -96,7 +110,7 @@ if (isset($_GET['action']) && isset($_GET['id'])) {
     }
 }
 
-// 处理角色修改（同时处理封禁私信）
+// 处理角色修改
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['user_id']) && isset($_POST['new_role'])) {
     $target_user_id = (int)$_POST['user_id'];
     $new_role = $_POST['new_role'];
@@ -381,6 +395,12 @@ if ($pdo) {
         .actions .approve:hover {
             color: var(--primary-light);
         }
+        .actions .pin {
+            color: #4caf50;
+        }
+        .actions .unpin {
+            color: #ff9800;
+        }
 
         .message {
             background: var(--surface-light);
@@ -607,6 +627,7 @@ if ($pdo) {
                                 <th>标题</th>
                                 <th>作者</th>
                                 <th>状态</th>
+                                <th>置顶</th>
                                 <th>发布时间</th>
                                 <th>阅读数</th>
                                 <th>点赞数</th>
@@ -640,12 +661,20 @@ if ($pdo) {
                                     echo $status_text[$row['status']] ?? $row['status'];
                                     ?>
                                 </td>
+                                <td>
+                                    <?php echo $row['is_pinned'] ? '✅' : '❌'; ?>
+                                </td>
                                 <td><?php echo date('Y-m-d H:i', strtotime($row['created_at'])); ?></td>
                                 <td><?php echo number_format($row['views']); ?></td>
                                 <td><?php echo number_format($row['like_count']); ?></td>
                                 <td><?php echo number_format($row['comment_count']); ?></td>
                                 <td class="actions">
                                     <a href="edit_post.php?id=<?php echo $row['id']; ?>">编辑</a>
+                                    <?php if ($row['is_pinned']): ?>
+                                        <a href="admin.php?page=posts&action=unpin&id=<?php echo $row['id']; ?>" class="unpin" onclick="return confirm('取消置顶？')">取消置顶</a>
+                                    <?php else: ?>
+                                        <a href="admin.php?page=posts&action=pin&id=<?php echo $row['id']; ?>" class="pin" onclick="return confirm('确定置顶此帖子？')">置顶</a>
+                                    <?php endif; ?>
                                     <a href="admin.php?page=posts&action=delete_post&id=<?php echo $row['id']; ?>" class="delete" onclick="return confirm('确定删除此帖子吗？')">删除</a>
                                 </td>
                             </tr>
