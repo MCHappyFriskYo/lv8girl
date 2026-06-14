@@ -1,9 +1,5 @@
 <?php
-ini_set('upload_max_filesize', '500M');
-ini_set('post_max_size', '500M');
-ini_set('max_execution_time', 300);
-ini_set('max_input_time', 300);
-// submit_video.php - 视频投稿（自动生成 LB 号）
+// submit_video.php - 视频投稿（增强错误处理）
 session_start();
 require_once 'config.php';
 
@@ -15,9 +11,11 @@ if (!isset($_SESSION['handle'])) {
 $userHandle = $_SESSION['handle'];
 $userDisplayName = $_SESSION['display_name'] ?? $userHandle;
 
+// 上传配置
 define('VIDEO_UPLOAD_DIR', __DIR__ . '/uploads/videos/');
 define('THUMB_UPLOAD_DIR', __DIR__ . '/uploads/thumbnails/');
-define('MAX_FILE_SIZE', 500 * 1024 * 1024);
+define('MAX_FILE_SIZE', 500 * 1024 * 1024); // 500MB (前端限制)
+
 $allowedVideoTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm'];
 $allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
 
@@ -34,21 +32,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $uploadedVideo = $_FILES['video_file'] ?? null;
     $uploadedThumb = $_FILES['thumbnail_file'] ?? null;
 
+    // 验证标题
     if (empty($title)) {
         $error = '请填写视频标题';
-    } elseif (!$uploadedVideo || $uploadedVideo['error'] !== UPLOAD_ERR_OK) {
+    }
+    // 验证视频文件
+    elseif (!$uploadedVideo || $uploadedVideo['error'] === UPLOAD_ERR_NO_FILE) {
         $error = '请选择视频文件';
-    } elseif ($uploadedVideo['size'] > MAX_FILE_SIZE) {
-        $error = '视频文件过大，不能超过500MB';
-    } elseif (!in_array($uploadedVideo['type'], $allowedVideoTypes)) {
+    }
+    elseif ($uploadedVideo['error'] === UPLOAD_ERR_INI_SIZE || $uploadedVideo['error'] === UPLOAD_ERR_FORM_SIZE) {
+        $error = '视频文件超过了服务器允许的最大大小（' . ini_get('upload_max_filesize') . 'B），请压缩视频或联系管理员增加限制。';
+    }
+    elseif ($uploadedVideo['error'] !== UPLOAD_ERR_OK) {
+        $error = '文件上传失败，错误代码：' . $uploadedVideo['error'];
+    }
+    elseif ($uploadedVideo['size'] > MAX_FILE_SIZE) {
+        $error = '视频文件不能超过 500MB，请选择较小的文件。';
+    }
+    elseif (!in_array($uploadedVideo['type'], $allowedVideoTypes)) {
         $error = '仅支持 MP4、MOV、AVI、WebM 格式的视频';
-    } else {
+    }
+    else {
+        // 处理视频文件
         $videoExt = pathinfo($uploadedVideo['name'], PATHINFO_EXTENSION);
         $videoName = uniqid() . '_' . bin2hex(random_bytes(8)) . '.' . $videoExt;
         $videoPath = VIDEO_UPLOAD_DIR . $videoName;
         if (!move_uploaded_file($uploadedVideo['tmp_name'], $videoPath)) {
             $error = '视频保存失败，请检查目录权限';
         } else {
+            // 处理封面图
             $thumbnailPath = '';
             $coverUrl = '';
             if ($uploadedThumb && $uploadedThumb['error'] === UPLOAD_ERR_OK && in_array($uploadedThumb['type'], $allowedImageTypes)) {
@@ -62,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = '封面图保存失败';
                 }
             } else {
-                // 尝试用 FFmpeg 生成缩略图
+                // 尝试用 FFmpeg 生成缩略图（第一帧）
                 $ffmpeg = 'ffmpeg';
                 $thumbName = uniqid() . '_frame.jpg';
                 $thumbPath = THUMB_UPLOAD_DIR . $thumbName;
@@ -156,7 +168,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php elseif ($error): ?>
             <div class="alert alert-error"><i class="fas fa-exclamation-triangle"></i> <?= htmlspecialchars($error) ?></div>
         <?php endif; ?>
-        <form method="POST" enctype="multipart/form-data">
+        <form method="POST" enctype="multipart/form-data" id="uploadForm">
             <div class="form-group">
                 <label><i class="fas fa-heading"></i> 视频标题 *</label>
                 <input type="text" name="title" required value="<?= htmlspecialchars($_POST['title'] ?? '') ?>" placeholder="例如：樱花JK · 漫步校园 春日限定vlog">
@@ -179,13 +191,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             <div class="form-group">
                 <label><i class="fas fa-video"></i> 视频文件 *</label>
-                <input type="file" name="video_file" accept="video/mp4,video/quicktime,video/x-msvideo,video/webm" required class="file-input">
-                <div class="file-hint" style="font-size:12px; color:#8bb282; margin-top:6px;">支持 MP4、MOV、AVI、WebM，最大 500MB</div>
+                <input type="file" name="video_file" accept="video/mp4,video/quicktime,video/x-msvideo,video/webm" required class="file-input" id="videoFile">
+                <div class="file-hint" style="font-size:12px; color:#8bb282; margin-top:6px;">
+                    支持 MP4、MOV、AVI、WebM，最大 <?= ini_get('upload_max_filesize') ?>B<br>
+                    <span id="fileSizeWarning" style="color:#e68a6e; display:none;">文件超过服务器限制，请压缩或联系管理员</span>
+                </div>
             </div>
             <div class="form-group">
                 <label><i class="fas fa-image"></i> 封面图片（选填）</label>
                 <input type="file" name="thumbnail_file" accept="image/jpeg,image/png,image/webp" class="file-input" id="thumbInput">
-                <div class="file-hint" style="font-size:12px; color:#8bb282;">若不提供将自动从视频第一帧提取（需服务器支持 FFmpeg）</div>
+                <div class="file-hint" style="font-size:12px; color:#8bb282;">若不提供将从视频第一帧自动提取（需服务器支持 FFmpeg）</div>
                 <div id="thumbPreview" style="display: none; margin-top: 12px;"><img id="previewImg" style="max-width: 100%; max-height: 150px; border-radius: 16px;"></div>
             </div>
             <button type="submit" class="btn-submit"><i class="fas fa-paper-plane"></i> 发布视频</button>
@@ -198,12 +213,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <li><i class="fas fa-check-circle" style="color:#6fcf97;"></i> 请勿上传违规或侵权内容</li>
                 <li><i class="fas fa-check-circle" style="color:#6fcf97;"></i> 视频将展示在「为你推荐」和「全站少女榜」</li>
                 <li><i class="fas fa-check-circle" style="color:#6fcf97;"></i> 支持常见视频格式，建议使用 H.264 编码的 MP4</li>
-                <li><i class="fas fa-check-circle" style="color:#6fcf97;"></i> 每个视频会自动生成唯一的 LB 号（类似 B 站 BV 号）</li>
+                <li><i class="fas fa-check-circle" style="color:#6fcf97;"></i> 每个视频会自动生成唯一的 LB 号</li>
+                <li><i class="fas fa-exclamation-triangle" style="color:#f0ad4e;"></i> 当前服务器上传限制为 <?= ini_get('upload_max_filesize') ?>，超过此大小的视频将无法上传。</li>
             </ul>
         </div>
     </div>
 </div>
+
 <script>
+    // 封面预览
     document.getElementById('thumbInput')?.addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (file && file.type.startsWith('image/')) {
@@ -217,11 +235,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             document.getElementById('thumbPreview').style.display = 'none';
         }
     });
-    document.querySelector('form')?.addEventListener('submit', function(e) {
-        const videoFile = document.querySelector('input[name="video_file"]').files[0];
-        if (videoFile && videoFile.size > 500 * 1024 * 1024) {
+
+    // 前端文件大小验证（根据 upload_max_filesize）
+    const videoFile = document.getElementById('videoFile');
+    const warningSpan = document.getElementById('fileSizeWarning');
+    const uploadLimit = <?= intval(ini_get('upload_max_filesize')) ?>; // 单位为字节
+    const uploadLimitMB = uploadLimit / 1024 / 1024;
+    videoFile.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (file && file.size > uploadLimit) {
+            warningSpan.style.display = 'inline';
+            this.value = ''; // 清空选择
+            alert(`选择的视频文件超过服务器限制（${uploadLimitMB.toFixed(0)}MB），请压缩后再试。`);
+        } else {
+            warningSpan.style.display = 'none';
+        }
+    });
+
+    // 表单提交前的额外检查
+    document.getElementById('uploadForm').addEventListener('submit', function(e) {
+        const videoFileElem = document.getElementById('videoFile');
+        if (videoFileElem.files.length === 0) {
             e.preventDefault();
-            alert('视频文件不能超过 500MB');
+            alert('请选择视频文件');
+            return;
+        }
+        const file = videoFileElem.files[0];
+        if (file.size > uploadLimit) {
+            e.preventDefault();
+            alert(`视频文件不能超过 ${uploadLimitMB.toFixed(0)}MB，请选择较小的文件。`);
         }
     });
 </script>
