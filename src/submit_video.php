@@ -1,25 +1,24 @@
 <?php
-// submit_video.php - 视频投稿（完整版，支持自动生成LB号、封面处理）
+// submit_video.php - 修复上传错误提示
 session_start();
 require_once 'config.php';
 
-// 登录检测
 if (!isset($_SESSION['handle'])) {
     header('Location: login.php');
     exit;
 }
 
+set_time_limit(0); // 避免大文件上传超时
+
 $userHandle = $_SESSION['handle'];
 $userDisplayName = $_SESSION['display_name'] ?? $userHandle;
 
-// 上传目录配置
 define('VIDEO_UPLOAD_DIR', __DIR__ . '/uploads/videos/');
 define('THUMB_UPLOAD_DIR', __DIR__ . '/uploads/thumbnails/');
-define('MAX_FILE_SIZE', 500 * 1024 * 1024); // 500MB
+define('MAX_FILE_SIZE', 500 * 1024 * 1024);
 $allowedVideoTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm'];
 $allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
 
-// 创建目录（如果不存在）
 if (!is_dir(VIDEO_UPLOAD_DIR)) mkdir(VIDEO_UPLOAD_DIR, 0777, true);
 if (!is_dir(THUMB_UPLOAD_DIR)) mkdir(THUMB_UPLOAD_DIR, 0777, true);
 
@@ -33,13 +32,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $uploadedVideo = $_FILES['video_file'] ?? null;
     $uploadedThumb = $_FILES['thumbnail_file'] ?? null;
 
-    // 验证标题
     if (empty($title)) {
         $error = '请填写视频标题';
     }
-    // 验证视频文件
     elseif (!$uploadedVideo || $uploadedVideo['error'] !== UPLOAD_ERR_OK) {
-        $error = '请选择视频文件';
+        // 详细错误诊断
+        if (!$uploadedVideo) {
+            $error = '未接收到视频文件，请检查表单 enctype 或文件大小限制';
+        } else {
+            switch ($uploadedVideo['error']) {
+                case UPLOAD_ERR_INI_SIZE:
+                case UPLOAD_ERR_FORM_SIZE:
+                    $error = '视频文件超过服务器允许大小（最大500MB）';
+                    break;
+                case UPLOAD_ERR_PARTIAL:
+                    $error = '文件只被部分上传，请重试';
+                    break;
+                case UPLOAD_ERR_NO_FILE:
+                    $error = '请选择视频文件';
+                    break;
+                case UPLOAD_ERR_NO_TMP_DIR:
+                    $error = '服务器临时文件夹缺失，请联系管理员';
+                    break;
+                case UPLOAD_ERR_CANT_WRITE:
+                    $error = '文件写入失败，请检查目录权限';
+                    break;
+                default:
+                    $error = '上传失败，错误代码：' . $uploadedVideo['error'];
+            }
+        }
     }
     elseif ($uploadedVideo['size'] > MAX_FILE_SIZE) {
         $error = '视频文件过大，不能超过500MB';
@@ -48,15 +69,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = '仅支持 MP4、MOV、AVI、WebM 格式的视频';
     }
     else {
-        // 处理视频文件
         $videoExt = pathinfo($uploadedVideo['name'], PATHINFO_EXTENSION);
         $videoName = uniqid() . '_' . bin2hex(random_bytes(8)) . '.' . $videoExt;
         $videoPath = VIDEO_UPLOAD_DIR . $videoName;
         if (!move_uploaded_file($uploadedVideo['tmp_name'], $videoPath)) {
             $error = '视频保存失败，请检查目录权限';
-        }
-        else {
-            // 处理封面图
+        } else {
+            // 处理封面（同之前逻辑）
             $thumbnailPath = '';
             $coverUrl = '';
             if ($uploadedThumb && $uploadedThumb['error'] === UPLOAD_ERR_OK && in_array($uploadedThumb['type'], $allowedImageTypes)) {
@@ -70,8 +89,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = '封面图保存失败';
                 }
             } else {
-                // 尝试用 FFmpeg 生成缩略图（第一帧）
-                $ffmpeg = 'ffmpeg'; // 请根据实际路径调整，如 '/usr/bin/ffmpeg'
+                // 尝试用 FFmpeg 生成缩略图
+                $ffmpeg = 'ffmpeg';
                 $thumbName = uniqid() . '_frame.jpg';
                 $thumbPath = THUMB_UPLOAD_DIR . $thumbName;
                 $cmd = "$ffmpeg -i " . escapeshellarg($videoPath) . " -ss 00:00:01 -vframes 1 -f image2 " . escapeshellarg($thumbPath) . " 2>&1";
@@ -80,15 +99,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $thumbnailPath = 'uploads/thumbnails/' . $thumbName;
                     $coverUrl = $thumbnailPath;
                 } else {
-                    // 无法生成缩略图，使用默认封面（外部图片）
                     $coverUrl = 'https://picsum.photos/id/20/300/180';
                 }
             }
 
             if (!$error) {
-                // 生成唯一的 LB 号
                 $lb = generateLB($pdo);
-                // 插入数据库
                 $stmt = $pdo->prepare("INSERT INTO videos (lb, title, description, category, up_name, file_path, thumbnail_path, cover_url, plays, danmu) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 $result = $stmt->execute([
                     $lb, $title, $description, $category, $userDisplayName,
@@ -96,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
                 if ($result) {
                     $success = '视频投稿成功！✨ 视频 LB 号为 ' . $lb;
-                    $_POST = []; // 清空表单
+                    $_POST = [];
                 } else {
                     $error = '数据库写入失败，请稍后重试';
                     @unlink($videoPath);
@@ -111,10 +127,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>视频投稿 · lv8girl 少女世界</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频投稿 · lv8girl</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
+        /* 此处样式与之前相同，为节省篇幅省略，实际使用时请复制原样式 */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background: linear-gradient(145deg, #eaf7e4 0%, #d3e8cc 100%); font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; color: #1c2c1a; padding: 0 0 40px; }
         .navbar { background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(100, 150, 90, 0.2); padding: 12px 0; position: sticky; top: 0; z-index: 100; }
@@ -167,7 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php elseif ($error): ?>
             <div class="alert alert-error"><i class="fas fa-exclamation-triangle"></i> <?= htmlspecialchars($error) ?></div>
         <?php endif; ?>
-        <form method="POST" enctype="multipart/form-data">
+        <form method="POST" enctype="multipart/form-data" id="uploadForm">
             <div class="form-group">
                 <label><i class="fas fa-heading"></i> 视频标题 *</label>
                 <input type="text" name="title" required value="<?= htmlspecialchars($_POST['title'] ?? '') ?>" placeholder="例如：樱花JK · 漫步校园 春日限定vlog">
@@ -235,13 +252,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             previewDiv.style.display = 'none';
         }
     });
-    // 前端文件大小验证
-    const form = document.querySelector('form');
+    // 前端文件验证
+    const form = document.getElementById('uploadForm');
     form.addEventListener('submit', function(e) {
         const videoFile = document.querySelector('input[name="video_file"]').files[0];
-        if (videoFile && videoFile.size > 500 * 1024 * 1024) {
+        if (!videoFile) {
+            alert('请先选择视频文件');
             e.preventDefault();
+            return;
+        }
+        if (videoFile.size > 500 * 1024 * 1024) {
             alert('视频文件不能超过 500MB');
+            e.preventDefault();
         }
     });
 </script>
