@@ -1,5 +1,12 @@
 <?php
-// submit_video.php - 修复上传限制显示错误，正确解析 upload_max_filesize
+// submit_video.php - 视频投稿（含上传限制临时提升）
+// 尝试临时提升上传限制（如果服务器配置允许）
+@ini_set('upload_max_filesize', '2048M');
+@ini_set('post_max_size', '2048M');
+@ini_set('max_execution_time', 3600);
+@ini_set('max_input_time', 3600);
+@ini_set('memory_limit', '2048M');
+
 session_start();
 require_once 'config.php';
 
@@ -23,12 +30,12 @@ function parse_size($size) {
 
 $upload_max_size_ini = ini_get('upload_max_filesize');
 $upload_max_bytes = parse_size($upload_max_size_ini);
-$upload_max_readable = $upload_max_size_ini; // 原始字符串，如 "500M"
+$upload_max_readable = $upload_max_size_ini;
 
-// 上传配置
 define('VIDEO_UPLOAD_DIR', __DIR__ . '/uploads/videos/');
 define('THUMB_UPLOAD_DIR', __DIR__ . '/uploads/thumbnails/');
-define('MAX_FILE_SIZE', 500 * 1024 * 1024); // 500MB（程序内限制）
+// 代码内最大限制 2GB（可根据需要调整，但实际受限于 php.ini）
+define('MAX_FILE_SIZE', 2 * 1024 * 1024 * 1024); // 2GB
 
 $allowedVideoTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm'];
 $allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
@@ -53,13 +60,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = '请选择视频文件';
     }
     elseif ($uploadedVideo['error'] === UPLOAD_ERR_INI_SIZE || $uploadedVideo['error'] === UPLOAD_ERR_FORM_SIZE) {
-        $error = "视频文件超过了服务器允许的最大大小（{$upload_max_readable}），请压缩视频后重新上传。";
+        $error = "视频文件超过了服务器允许的最大大小（{$upload_max_readable}）。请修改 php.ini 中的 upload_max_filesize 和 post_max_size，或压缩文件。";
     }
     elseif ($uploadedVideo['error'] !== UPLOAD_ERR_OK) {
         $error = '文件上传失败，错误代码：' . $uploadedVideo['error'];
     }
     elseif ($uploadedVideo['size'] > MAX_FILE_SIZE) {
-        $error = '视频文件不能超过 500MB，请选择较小的文件。';
+        $error = '视频文件不能超过 2GB（代码限制），请选择较小的文件。';
     }
     elseif (!in_array($uploadedVideo['type'], $allowedVideoTypes)) {
         $error = '仅支持 MP4、MOV、AVI、WebM 格式的视频';
@@ -122,10 +129,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>视频投稿 · lv8girl</title>
+    <title>视频投稿 · lv8girl 少女世界</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* 样式与之前相同，此处省略（完整代码请复制之前的样式） */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background: linear-gradient(145deg, #eaf7e4 0%, #d3e8cc 100%); font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; color: #1c2c1a; padding: 0 0 40px; }
         .navbar { background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(100, 150, 90, 0.2); padding: 12px 0; position: sticky; top: 0; z-index: 100; }
@@ -199,7 +205,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <label><i class="fas fa-video"></i> 视频文件 *</label>
                 <input type="file" name="video_file" accept="video/mp4,video/quicktime,video/x-msvideo,video/webm" required class="file-input" id="videoFile">
                 <div class="file-hint" style="font-size:12px; color:#8bb282; margin-top:6px;">
-                    当前服务器上传限制：<?= htmlspecialchars($upload_max_readable) ?>B（即 <?= round($upload_max_bytes / 1024 / 1024, 2) ?> MB）
+                    当前服务器上传限制：<?= htmlspecialchars($upload_max_readable) ?>（约 <?= round($upload_max_bytes / 1024 / 1024, 2) ?> MB）<br>
+                    如需上传更大文件，请修改 php.ini 中的 upload_max_filesize 和 post_max_size。
                 </div>
             </div>
             <div class="form-group">
@@ -219,7 +226,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <li><i class="fas fa-check-circle"></i> 视频将展示在「为你推荐」和「全站少女榜」</li>
                 <li><i class="fas fa-check-circle"></i> 支持常见视频格式，建议使用 H.264 编码的 MP4</li>
                 <li><i class="fas fa-check-circle"></i> 每个视频会自动生成唯一的 LB 号</li>
-                <li><i class="fas fa-exclamation-triangle"></i> 当前上传限制 <?= htmlspecialchars($upload_max_readable) ?>，超出此大小的文件将被拒绝。</li>
+                <li><i class="fas fa-exclamation-triangle"></i> 当前上传限制为 <?= htmlspecialchars($upload_max_readable) ?>，超出将被拒绝。</li>
             </ul>
         </div>
     </div>
@@ -244,16 +251,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     });
 
-    // 前端文件大小检查（正确的字节限制）
+    // 前端文件大小检查（警告）
     const uploadLimitBytes = <?= json_encode($upload_max_bytes) ?>;
-    const uploadLimitMB = (uploadLimitBytes / 1024 / 1024).toFixed(2);
     const videoFile = document.getElementById('videoFile');
     videoFile?.addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (file && file.size > uploadLimitBytes) {
-            alert(`警告：选择的文件超过服务器限制（${uploadLimitMB}MB），上传将被拒绝。请压缩文件后再试。`);
-        } else if (file && uploadLimitBytes === 0) {
-            alert("系统错误：无法获取服务器上传限制，请联系管理员检查 PHP 配置中的 upload_max_filesize。");
+            alert(`⚠️ 所选文件大小超过服务器限制（${(uploadLimitBytes / 1024 / 1024).toFixed(2)}MB），上传将被拒绝。请压缩文件或联系管理员调整 php.ini 限制。`);
         }
     });
 </script>
