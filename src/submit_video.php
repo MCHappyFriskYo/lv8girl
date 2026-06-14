@@ -1,4 +1,8 @@
 <?php
+ini_set('upload_max_filesize', '500M');
+ini_set('post_max_size', '500M');
+ini_set('max_execution_time', 300);
+ini_set('max_input_time', 300);
 // submit_video.php - 视频投稿（自动生成 LB 号）
 session_start();
 require_once 'config.php';
