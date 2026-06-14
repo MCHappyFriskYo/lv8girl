@@ -1,5 +1,5 @@
 <?php
-// submit_video.php - 修复前端文件选择被清空的问题
+// submit_video.php - 修复上传限制显示错误，正确解析 upload_max_filesize
 session_start();
 require_once 'config.php';
 
@@ -11,9 +11,24 @@ if (!isset($_SESSION['handle'])) {
 $userHandle = $_SESSION['handle'];
 $userDisplayName = $_SESSION['display_name'] ?? $userHandle;
 
+// 辅助函数：将类似 "500M" 的字符串转换为字节数
+function parse_size($size) {
+    $unit = preg_replace('/[^bkmgtpezy]/i', '', $size);
+    $size = (float)preg_replace('/[^0-9\.]/', '', $size);
+    if ($unit) {
+        $size = $size * pow(1024, stripos('bkmgtpezy', $unit[0]));
+    }
+    return (int)$size;
+}
+
+$upload_max_size_ini = ini_get('upload_max_filesize');
+$upload_max_bytes = parse_size($upload_max_size_ini);
+$upload_max_readable = $upload_max_size_ini; // 原始字符串，如 "500M"
+
+// 上传配置
 define('VIDEO_UPLOAD_DIR', __DIR__ . '/uploads/videos/');
 define('THUMB_UPLOAD_DIR', __DIR__ . '/uploads/thumbnails/');
-define('MAX_FILE_SIZE', 500 * 1024 * 1024);
+define('MAX_FILE_SIZE', 500 * 1024 * 1024); // 500MB（程序内限制）
 
 $allowedVideoTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm'];
 $allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
@@ -38,8 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = '请选择视频文件';
     }
     elseif ($uploadedVideo['error'] === UPLOAD_ERR_INI_SIZE || $uploadedVideo['error'] === UPLOAD_ERR_FORM_SIZE) {
-        $limit = ini_get('upload_max_filesize');
-        $error = "视频文件超过了服务器允许的最大大小（{$limit}），请压缩视频后重新上传。";
+        $error = "视频文件超过了服务器允许的最大大小（{$upload_max_readable}），请压缩视频后重新上传。";
     }
     elseif ($uploadedVideo['error'] !== UPLOAD_ERR_OK) {
         $error = '文件上传失败，错误代码：' . $uploadedVideo['error'];
@@ -51,14 +65,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = '仅支持 MP4、MOV、AVI、WebM 格式的视频';
     }
     else {
-        // 处理视频文件
         $videoExt = pathinfo($uploadedVideo['name'], PATHINFO_EXTENSION);
         $videoName = uniqid() . '_' . bin2hex(random_bytes(8)) . '.' . $videoExt;
         $videoPath = VIDEO_UPLOAD_DIR . $videoName;
         if (!move_uploaded_file($uploadedVideo['tmp_name'], $videoPath)) {
             $error = '视频保存失败，请检查目录权限';
         } else {
-            // 处理封面
             $thumbnailPath = '';
             $coverUrl = '';
             if ($uploadedThumb && $uploadedThumb['error'] === UPLOAD_ERR_OK && in_array($uploadedThumb['type'], $allowedImageTypes)) {
@@ -72,7 +84,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = '封面图保存失败';
                 }
             } else {
-                // FFmpeg 生成缩略图
                 $ffmpeg = 'ffmpeg';
                 $thumbName = uniqid() . '_frame.jpg';
                 $thumbPath = THUMB_UPLOAD_DIR . $thumbName;
@@ -114,6 +125,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <title>视频投稿 · lv8girl</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
+        /* 样式与之前相同，此处省略（完整代码请复制之前的样式） */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background: linear-gradient(145deg, #eaf7e4 0%, #d3e8cc 100%); font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; color: #1c2c1a; padding: 0 0 40px; }
         .navbar { background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(100, 150, 90, 0.2); padding: 12px 0; position: sticky; top: 0; z-index: 100; }
@@ -158,9 +170,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="form-title"><i class="fas fa-cloud-upload-alt" style="color: #5acd73;"></i> 投稿视频</div>
         <div class="form-sub">分享你喜欢的少女向作品，让更多人发现美好 ✨</div>
         <?php if ($success): ?>
-            <div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= htmlspecialchars($success) ?></div>
+            <div class="alert alert-success">✅ <?= htmlspecialchars($success) ?></div>
         <?php elseif ($error): ?>
-            <div class="alert alert-error"><i class="fas fa-exclamation-triangle"></i> <?= htmlspecialchars($error) ?></div>
+            <div class="alert alert-error">⚠️ <?= htmlspecialchars($error) ?></div>
         <?php endif; ?>
         <form method="POST" enctype="multipart/form-data" id="uploadForm">
             <div class="form-group">
@@ -187,7 +199,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <label><i class="fas fa-video"></i> 视频文件 *</label>
                 <input type="file" name="video_file" accept="video/mp4,video/quicktime,video/x-msvideo,video/webm" required class="file-input" id="videoFile">
                 <div class="file-hint" style="font-size:12px; color:#8bb282; margin-top:6px;">
-                    当前服务器上传限制：<?= ini_get('upload_max_filesize') ?>B
+                    当前服务器上传限制：<?= htmlspecialchars($upload_max_readable) ?>B（即 <?= round($upload_max_bytes / 1024 / 1024, 2) ?> MB）
                 </div>
             </div>
             <div class="form-group">
@@ -203,11 +215,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="tips-card">
             <div class="tips-title"><i class="fas fa-info-circle"></i> 投稿须知</div>
             <ul class="tips-list">
-                <li><i class="fas fa-check-circle" style="color:#6fcf97;"></i> 请勿上传违规或侵权内容</li>
-                <li><i class="fas fa-check-circle" style="color:#6fcf97;"></i> 视频将展示在「为你推荐」和「全站少女榜」</li>
-                <li><i class="fas fa-check-circle" style="color:#6fcf97;"></i> 支持常见视频格式，建议使用 H.264 编码的 MP4</li>
-                <li><i class="fas fa-check-circle" style="color:#6fcf97;"></i> 每个视频会自动生成唯一的 LB 号</li>
-                <li><i class="fas fa-exclamation-triangle" style="color:#f0ad4e;"></i> 当前上传限制 <?= ini_get('upload_max_filesize') ?>，超出此大小的文件将被拒绝。</li>
+                <li><i class="fas fa-check-circle"></i> 请勿上传违规或侵权内容</li>
+                <li><i class="fas fa-check-circle"></i> 视频将展示在「为你推荐」和「全站少女榜」</li>
+                <li><i class="fas fa-check-circle"></i> 支持常见视频格式，建议使用 H.264 编码的 MP4</li>
+                <li><i class="fas fa-check-circle"></i> 每个视频会自动生成唯一的 LB 号</li>
+                <li><i class="fas fa-exclamation-triangle"></i> 当前上传限制 <?= htmlspecialchars($upload_max_readable) ?>，超出此大小的文件将被拒绝。</li>
             </ul>
         </div>
     </div>
@@ -232,13 +244,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     });
 
-    // 前端文件大小检查（仅提示，不清空文件，让后端最终拒绝）
+    // 前端文件大小检查（正确的字节限制）
+    const uploadLimitBytes = <?= json_encode($upload_max_bytes) ?>;
+    const uploadLimitMB = (uploadLimitBytes / 1024 / 1024).toFixed(2);
     const videoFile = document.getElementById('videoFile');
-    const uploadLimit = <?= intval(ini_get('upload_max_filesize')) ?>; // 字节
     videoFile?.addEventListener('change', function(e) {
         const file = e.target.files[0];
-        if (file && file.size > uploadLimit) {
-            alert(`警告：选择的文件超过服务器限制（${(uploadLimit / 1024 / 1024).toFixed(0)}MB），上传将失败。请压缩文件后再试。`);
+        if (file && file.size > uploadLimitBytes) {
+            alert(`警告：选择的文件超过服务器限制（${uploadLimitMB}MB），上传将被拒绝。请压缩文件后再试。`);
+        } else if (file && uploadLimitBytes === 0) {
+            alert("系统错误：无法获取服务器上传限制，请联系管理员检查 PHP 配置中的 upload_max_filesize。");
         }
     });
 </script>
