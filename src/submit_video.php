@@ -1,15 +1,9 @@
 <?php
-// submit_video.php - 视频投稿（含上传限制临时提升）
-// 尝试临时提升上传限制（如果服务器配置允许）
-@ini_set('upload_max_filesize', '2048M');
-@ini_set('post_max_size', '2048M');
-@ini_set('max_execution_time', 3600);
-@ini_set('max_input_time', 3600);
-@ini_set('memory_limit', '2048M');
-
+// submit_video.php - 视频投稿页面（参考 B 站排版，绿野风格）
 session_start();
 require_once 'config.php';
 
+// 登录检测
 if (!isset($_SESSION['handle'])) {
     header('Location: login.php');
     exit;
@@ -18,28 +12,14 @@ if (!isset($_SESSION['handle'])) {
 $userHandle = $_SESSION['handle'];
 $userDisplayName = $_SESSION['display_name'] ?? $userHandle;
 
-// 辅助函数：将类似 "500M" 的字符串转换为字节数
-function parse_size($size) {
-    $unit = preg_replace('/[^bkmgtpezy]/i', '', $size);
-    $size = (float)preg_replace('/[^0-9\.]/', '', $size);
-    if ($unit) {
-        $size = $size * pow(1024, stripos('bkmgtpezy', $unit[0]));
-    }
-    return (int)$size;
-}
-
-$upload_max_size_ini = ini_get('upload_max_filesize');
-$upload_max_bytes = parse_size($upload_max_size_ini);
-$upload_max_readable = $upload_max_size_ini;
-
+// 上传配置
 define('VIDEO_UPLOAD_DIR', __DIR__ . '/uploads/videos/');
 define('THUMB_UPLOAD_DIR', __DIR__ . '/uploads/thumbnails/');
-// 代码内最大限制 2GB（可根据需要调整，但实际受限于 php.ini）
-define('MAX_FILE_SIZE', 2 * 1024 * 1024 * 1024); // 2GB
-
+define('MAX_FILE_SIZE', 500 * 1024 * 1024); // 500MB
 $allowedVideoTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm'];
 $allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
 
+// 创建目录
 if (!is_dir(VIDEO_UPLOAD_DIR)) mkdir(VIDEO_UPLOAD_DIR, 0777, true);
 if (!is_dir(THUMB_UPLOAD_DIR)) mkdir(THUMB_UPLOAD_DIR, 0777, true);
 
@@ -55,29 +35,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (empty($title)) {
         $error = '请填写视频标题';
-    }
-    elseif (!$uploadedVideo || $uploadedVideo['error'] === UPLOAD_ERR_NO_FILE) {
+    } elseif (!$uploadedVideo || $uploadedVideo['error'] !== UPLOAD_ERR_OK) {
         $error = '请选择视频文件';
-    }
-    elseif ($uploadedVideo['error'] === UPLOAD_ERR_INI_SIZE || $uploadedVideo['error'] === UPLOAD_ERR_FORM_SIZE) {
-        $error = "视频文件超过了服务器允许的最大大小（{$upload_max_readable}）。请修改 php.ini 中的 upload_max_filesize 和 post_max_size，或压缩文件。";
-    }
-    elseif ($uploadedVideo['error'] !== UPLOAD_ERR_OK) {
-        $error = '文件上传失败，错误代码：' . $uploadedVideo['error'];
-    }
-    elseif ($uploadedVideo['size'] > MAX_FILE_SIZE) {
-        $error = '视频文件不能超过 2GB（代码限制），请选择较小的文件。';
-    }
-    elseif (!in_array($uploadedVideo['type'], $allowedVideoTypes)) {
+    } elseif ($uploadedVideo['size'] > MAX_FILE_SIZE) {
+        $error = '视频文件过大，不能超过500MB';
+    } elseif (!in_array($uploadedVideo['type'], $allowedVideoTypes)) {
         $error = '仅支持 MP4、MOV、AVI、WebM 格式的视频';
-    }
-    else {
+    } else {
         $videoExt = pathinfo($uploadedVideo['name'], PATHINFO_EXTENSION);
         $videoName = uniqid() . '_' . bin2hex(random_bytes(8)) . '.' . $videoExt;
         $videoPath = VIDEO_UPLOAD_DIR . $videoName;
         if (!move_uploaded_file($uploadedVideo['tmp_name'], $videoPath)) {
             $error = '视频保存失败，请检查目录权限';
         } else {
+            // 处理封面
             $thumbnailPath = '';
             $coverUrl = '';
             if ($uploadedThumb && $uploadedThumb['error'] === UPLOAD_ERR_OK && in_array($uploadedThumb['type'], $allowedImageTypes)) {
@@ -91,6 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = '封面图保存失败';
                 }
             } else {
+                // 尝试用 FFmpeg 生成缩略图
                 $ffmpeg = 'ffmpeg';
                 $thumbName = uniqid() . '_frame.jpg';
                 $thumbPath = THUMB_UPLOAD_DIR . $thumbName;
@@ -103,16 +75,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $coverUrl = 'https://picsum.photos/id/20/300/180';
                 }
             }
-
             if (!$error) {
-                $lb = generateLB($pdo);
-                $stmt = $pdo->prepare("INSERT INTO videos (lb, title, description, category, up_name, file_path, thumbnail_path, cover_url, plays, danmu) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt = $pdo->prepare("INSERT INTO videos (title, description, category, up_name, file_path, thumbnail_path, cover_url, plays, danmu) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 $result = $stmt->execute([
-                    $lb, $title, $description, $category, $userDisplayName,
+                    $title, $description, $category, $userDisplayName,
                     'uploads/videos/' . $videoName, $thumbnailPath, $coverUrl, '0', '0'
                 ]);
                 if ($result) {
-                    $success = '视频投稿成功！✨ 视频 LB 号为 ' . $lb;
+                    $success = '视频投稿成功！✨ 已发布';
                     $_POST = [];
                 } else {
                     $error = '数据库写入失败，请稍后重试';
@@ -128,58 +98,280 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>视频投稿 · lv8girl 少女世界</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: linear-gradient(145deg, #eaf7e4 0%, #d3e8cc 100%); font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; color: #1c2c1a; padding: 0 0 40px; }
-        .navbar { background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(100, 150, 90, 0.2); padding: 12px 0; position: sticky; top: 0; z-index: 100; }
-        .nav-container { max-width: 1000px; margin: 0 auto; padding: 0 28px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
-        .logo-area { display: flex; align-items: center; gap: 10px; text-decoration: none; }
-        .logo-icon { background: linear-gradient(135deg, #9be29b, #50b36e); width: 38px; height: 38px; border-radius: 16px; display: flex; align-items: center; justify-content: center; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(145deg, #eaf7e4 0%, #d3e8cc 100%);
+            font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+            color: #1c2c1a;
+            padding: 0 0 60px;
+        }
+
+        /* 毛玻璃导航条 */
+        .navbar {
+            background: rgba(255, 255, 255, 0.75);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(100, 150, 90, 0.2);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            padding: 12px 0;
+        }
+        .nav-container {
+            max-width: 1300px;
+            margin: 0 auto;
+            padding: 0 28px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        .logo-area {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+        }
+        .logo-icon {
+            background: linear-gradient(135deg, #9be29b, #50b36e);
+            width: 38px;
+            height: 38px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
         .logo-icon i { font-size: 22px; color: white; }
-        .logo-text { font-size: 24px; font-weight: 800; background: linear-gradient(135deg, #5acd73, #2e7d4c); -webkit-background-clip: text; background-clip: text; color: transparent; }
-        .back-home { background: rgba(100, 150, 90, 0.15); padding: 8px 18px; border-radius: 40px; color: #3a874b; text-decoration: none; font-weight: 500; }
-        .container { max-width: 1000px; margin: 28px auto 0; padding: 0 28px; display: grid; grid-template-columns: 1fr 300px; gap: 32px; }
-        .form-card { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(10px); border-radius: 32px; padding: 28px; border: 1px solid rgba(100, 150, 90, 0.25); }
-        .form-title { font-size: 24px; font-weight: 700; color: #2a5233; margin-bottom: 8px; display: flex; align-items: center; gap: 12px; }
-        .form-sub { color: #7b9f72; margin-bottom: 28px; font-size: 14px; border-bottom: 1px solid rgba(100,150,90,0.2); padding-bottom: 16px; }
-        .form-group { margin-bottom: 24px; }
-        label { font-weight: 600; color: #3a6345; display: block; margin-bottom: 8px; font-size: 14px; }
-        label i { margin-right: 8px; color: #6fcf97; }
-        input, select, textarea { width: 100%; padding: 12px 16px; background: rgba(240,248,235,0.8); border: 1px solid rgba(100,150,90,0.4); border-radius: 28px; font-size: 14px; font-family: inherit; transition: 0.2s; outline: none; }
-        input:focus, select:focus, textarea:focus { border-color: #6fcf97; background: white; box-shadow: 0 0 0 3px rgba(111,207,151,0.2); }
-        .file-input { padding: 8px; background: rgba(240,248,235,0.6); border: 1px dashed #a3d69e; }
-        .btn-submit { background: linear-gradient(95deg, #69d588, #3fa359); border: none; border-radius: 60px; padding: 14px 24px; color: white; font-weight: 700; font-size: 16px; cursor: pointer; width: 100%; transition: 0.2s; margin-top: 8px; }
-        .btn-submit:hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(70,150,70,0.3); }
-        .alert { padding: 12px 20px; border-radius: 40px; margin-bottom: 24px; font-size: 14px; }
-        .alert-success { background: #e2f7e0; color: #2e8b57; border-left: 4px solid #62cd82; }
-        .alert-error { background: #ffe7e0; color: #c55a3e; border-left: 4px solid #f3a18b; }
-        .tips-card { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(10px); border-radius: 32px; padding: 24px; border: 1px solid rgba(100,150,90,0.25); margin-bottom: 24px; }
-        .tips-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; border-left: 4px solid #7bc87b; padding-left: 14px; color: #2a5233; }
-        .tips-list { list-style: none; margin-top: 12px; }
-        .tips-list li { margin-bottom: 12px; font-size: 13px; color: #44633b; display: flex; gap: 10px; }
-        @media (max-width: 800px) { .container { grid-template-columns: 1fr; } }
+        .logo-text {
+            font-size: 24px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #5acd73, #2e7d4c);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .back-home {
+            background: rgba(100, 150, 90, 0.15);
+            padding: 8px 18px;
+            border-radius: 40px;
+            color: #3a874b;
+            text-decoration: none;
+            font-weight: 500;
+            transition: 0.2s;
+        }
+
+        /* 主容器 - 两栏布局 */
+        .container {
+            max-width: 1000px;
+            margin: 28px auto 0;
+            padding: 0 28px;
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 32px;
+        }
+
+        /* 左侧表单卡片 */
+        .form-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(10px);
+            border-radius: 32px;
+            padding: 28px;
+            border: 1px solid rgba(100, 150, 90, 0.25);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.04);
+        }
+        .form-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: #2a5233;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .form-sub {
+            color: #7b9f72;
+            margin-bottom: 28px;
+            font-size: 14px;
+            border-bottom: 1px solid rgba(100, 150, 90, 0.2);
+            padding-bottom: 16px;
+        }
+        .form-group {
+            margin-bottom: 24px;
+        }
+        label {
+            font-weight: 600;
+            color: #3a6345;
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        label i {
+            margin-right: 8px;
+            color: #6fcf97;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(240, 248, 235, 0.8);
+            border: 1px solid rgba(100, 150, 90, 0.4);
+            border-radius: 28px;
+            font-size: 14px;
+            font-family: inherit;
+            transition: 0.2s;
+            outline: none;
+        }
+        input:focus, select:focus, textarea:focus {
+            border-color: #6fcf97;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(111, 207, 151, 0.2);
+        }
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+        .file-input {
+            padding: 8px;
+            background: rgba(240, 248, 235, 0.6);
+            border: 1px dashed #a3d69e;
+            border-radius: 28px;
+        }
+        .file-hint {
+            font-size: 12px;
+            color: #8bb282;
+            margin-top: 6px;
+            margin-left: 12px;
+        }
+        .btn-submit {
+            background: linear-gradient(95deg, #69d588, #3fa359);
+            border: none;
+            border-radius: 60px;
+            padding: 14px 24px;
+            color: white;
+            font-weight: 700;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            transition: 0.2s;
+            margin-top: 8px;
+        }
+        .btn-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 18px rgba(70, 150, 70, 0.3);
+        }
+        .alert {
+            padding: 12px 20px;
+            border-radius: 40px;
+            margin-bottom: 24px;
+            font-size: 14px;
+        }
+        .alert-success {
+            background: #e2f7e0;
+            color: #2e8b57;
+            border-left: 4px solid #62cd82;
+        }
+        .alert-error {
+            background: #ffe7e0;
+            color: #c55a3e;
+            border-left: 4px solid #f3a18b;
+        }
+
+        /* 右侧边栏卡片 */
+        .tips-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(10px);
+            border-radius: 32px;
+            padding: 24px;
+            border: 1px solid rgba(100, 150, 90, 0.25);
+            margin-bottom: 24px;
+        }
+        .tips-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-left: 4px solid #7bc87b;
+            padding-left: 14px;
+            color: #2a5233;
+        }
+        .tips-list {
+            list-style: none;
+            margin-top: 12px;
+        }
+        .tips-list li {
+            margin-bottom: 12px;
+            font-size: 13px;
+            color: #44633b;
+            display: flex;
+            gap: 10px;
+        }
+        .preview-area {
+            text-align: center;
+            margin-top: 16px;
+        }
+        .preview-img {
+            max-width: 100%;
+            border-radius: 16px;
+            margin-top: 12px;
+            border: 1px solid rgba(100, 150, 90, 0.3);
+        }
+
+        .toast-msg {
+            position: fixed;
+            bottom: 25px;
+            left: 25px;
+            background: #1f321b;
+            color: #e3ffdb;
+            padding: 10px 24px;
+            border-radius: 60px;
+            font-size: 13px;
+            z-index: 999;
+            opacity: 0;
+            transition: 0.2s;
+            pointer-events: none;
+        }
+
+        @media (max-width: 800px) {
+            .container { grid-template-columns: 1fr; }
+            .form-card { padding: 20px; }
+        }
     </style>
 </head>
 <body>
 <div class="navbar">
     <div class="nav-container">
-        <a href="index.php" class="logo-area"><div class="logo-icon"><i class="fas fa-leaf"></i></div><div class="logo-text">lv8girl</div></a>
+        <a href="index.php" class="logo-area">
+            <div class="logo-icon"><i class="fas fa-leaf"></i></div>
+            <div class="logo-text">lv8girl</div>
+        </a>
         <a href="index.php" class="back-home"><i class="fas fa-arrow-left"></i> 返回首页</a>
     </div>
 </div>
 
 <div class="container">
+    <!-- 左侧表单区 -->
     <div class="form-card">
-        <div class="form-title"><i class="fas fa-cloud-upload-alt" style="color: #5acd73;"></i> 投稿视频</div>
+        <div class="form-title">
+            <i class="fas fa-cloud-upload-alt" style="color: #5acd73;"></i> 投稿视频
+        </div>
         <div class="form-sub">分享你喜欢的少女向作品，让更多人发现美好 ✨</div>
+
         <?php if ($success): ?>
-            <div class="alert alert-success">✅ <?= htmlspecialchars($success) ?></div>
+            <div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= htmlspecialchars($success) ?></div>
         <?php elseif ($error): ?>
-            <div class="alert alert-error">⚠️ <?= htmlspecialchars($error) ?></div>
+            <div class="alert alert-error"><i class="fas fa-exclamation-triangle"></i> <?= htmlspecialchars($error) ?></div>
         <?php endif; ?>
+
         <form method="POST" enctype="multipart/form-data" id="uploadForm">
             <div class="form-group">
                 <label><i class="fas fa-heading"></i> 视频标题 *</label>
@@ -203,43 +395,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             <div class="form-group">
                 <label><i class="fas fa-video"></i> 视频文件 *</label>
-                <input type="file" name="video_file" accept="video/mp4,video/quicktime,video/x-msvideo,video/webm" required class="file-input" id="videoFile">
-                <div class="file-hint" style="font-size:12px; color:#8bb282; margin-top:6px;">
-                    当前服务器上传限制：<?= htmlspecialchars($upload_max_readable) ?>（约 <?= round($upload_max_bytes / 1024 / 1024, 2) ?> MB）<br>
-                    如需上传更大文件，请修改 php.ini 中的 upload_max_filesize 和 post_max_size。
-                </div>
+                <input type="file" name="video_file" accept="video/mp4,video/quicktime,video/x-msvideo,video/webm" required class="file-input">
+                <div class="file-hint">支持 MP4、MOV、AVI、WebM，最大 500MB</div>
             </div>
             <div class="form-group">
                 <label><i class="fas fa-image"></i> 封面图片（选填）</label>
                 <input type="file" name="thumbnail_file" accept="image/jpeg,image/png,image/webp" class="file-input" id="thumbInput">
-                <div class="file-hint" style="font-size:12px; color:#8bb282;">若不提供将从视频第一帧自动提取（需服务器支持 FFmpeg）</div>
-                <div id="thumbPreview" style="display: none; margin-top: 12px;"><img id="previewImg" style="max-width: 100%; max-height: 150px; border-radius: 16px;"></div>
+                <div class="file-hint">建议尺寸 16:9，若不提供将自动从视频第一帧提取（需服务器支持 FFmpeg）</div>
+                <div class="preview-area" id="thumbPreview" style="display: none;">
+                    <img id="previewImg" class="preview-img" style="max-width: 100%; max-height: 150px;">
+                </div>
             </div>
             <button type="submit" class="btn-submit"><i class="fas fa-paper-plane"></i> 发布视频</button>
         </form>
     </div>
+
+    <!-- 右侧提示区 -->
     <div>
         <div class="tips-card">
             <div class="tips-title"><i class="fas fa-info-circle"></i> 投稿须知</div>
             <ul class="tips-list">
-                <li><i class="fas fa-check-circle"></i> 请勿上传违规或侵权内容</li>
-                <li><i class="fas fa-check-circle"></i> 视频将展示在「为你推荐」和「全站少女榜」</li>
-                <li><i class="fas fa-check-circle"></i> 支持常见视频格式，建议使用 H.264 编码的 MP4</li>
-                <li><i class="fas fa-check-circle"></i> 每个视频会自动生成唯一的 LB 号</li>
-                <li><i class="fas fa-exclamation-triangle"></i> 当前上传限制为 <?= htmlspecialchars($upload_max_readable) ?>，超出将被拒绝。</li>
+                <li><i class="fas fa-check-circle" style="color:#6fcf97;"></i> 请勿上传违规或侵权内容</li>
+                <li><i class="fas fa-check-circle" style="color:#6fcf97;"></i> 视频将展示在「为你推荐」和「全站少女榜」</li>
+                <li><i class="fas fa-check-circle" style="color:#6fcf97;"></i> 支持常见视频格式，建议使用 H.264 编码的 MP4</li>
+                <li><i class="fas fa-check-circle" style="color:#6fcf97;"></i> 封面会自动生成，也可手动上传更精美的图片</li>
+            </ul>
+        </div>
+        <div class="tips-card">
+            <div class="tips-title"><i class="fas fa-star"></i> 投稿奖励</div>
+            <ul class="tips-list">
+                <li><i class="fas fa-heart" style="color:#ff99cc;"></i> 优质视频将获得首页推荐位</li>
+                <li><i class="fas fa-gem" style="color:#ffcc66;"></i> 每月评选“少女之星”UP主</li>
             </ul>
         </div>
     </div>
 </div>
+
+<div id="toastMsg" class="toast-msg"></div>
 
 <script>
     // 封面预览
     const thumbInput = document.getElementById('thumbInput');
     const previewArea = document.getElementById('thumbPreview');
     const previewImg = document.getElementById('previewImg');
-    thumbInput?.addEventListener('change', function(e) {
+    thumbInput.addEventListener('change', function(e) {
         const file = e.target.files[0];
-        if (file && file.type.startsWith('image/')) {
+        if (file && (file.type.startsWith('image/'))) {
             const reader = new FileReader();
             reader.onload = function(ev) {
                 previewImg.src = ev.target.result;
@@ -251,15 +452,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     });
 
-    // 前端文件大小检查（警告）
-    const uploadLimitBytes = <?= json_encode($upload_max_bytes) ?>;
-    const videoFile = document.getElementById('videoFile');
-    videoFile?.addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (file && file.size > uploadLimitBytes) {
-            alert(`⚠️ 所选文件大小超过服务器限制（${(uploadLimitBytes / 1024 / 1024).toFixed(2)}MB），上传将被拒绝。请压缩文件或联系管理员调整 php.ini 限制。`);
+    // 前端文件大小验证
+    const form = document.getElementById('uploadForm');
+    form.addEventListener('submit', function(e) {
+        const videoFile = document.querySelector('input[name="video_file"]').files[0];
+        if (videoFile && videoFile.size > 500 * 1024 * 1024) {
+            e.preventDefault();
+            alert('视频文件超过 500MB 限制');
         }
     });
+
+    function showToast(msg, isError) {
+        const toast = document.getElementById('toastMsg');
+        toast.innerText = msg;
+        toast.style.opacity = '1';
+        toast.style.background = isError ? '#5a2e2a' : '#1f321b';
+        setTimeout(() => toast.style.opacity = '0', 2500);
+    }
 </script>
 </body>
 </html>
