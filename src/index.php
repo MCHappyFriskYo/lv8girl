@@ -1,7 +1,7 @@
 <?php
 /**
- * GSKChem 前台
- * 数据库配置：host=db
+ * LunaticCho 前台
+ * 支持用户名注册、头像上传、周常卡片、后台入口
  */
 
 error_reporting(E_ALL);
@@ -27,7 +27,6 @@ function gsk_config() {
     }
 }
 
-// ========== 跨域 ==========
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, GET, OPTIONS');
@@ -53,7 +52,6 @@ if (isset($_REQUEST['action'])) {
                 echo json_encode(['code' => 40001, 'message' => '请填写用户名/邮箱和密码']);
                 exit;
             }
-            // 支持用户名或邮箱登录
             $stmt = $pdo->prepare("SELECT * FROM gsk_users WHERE username = ? OR email = ?");
             $stmt->execute([$login, $login]);
             $user = $stmt->fetch();
@@ -82,6 +80,7 @@ if (isset($_REQUEST['action'])) {
                         'username' => $user['username'],
                         'email' => $user['email'],
                         'role' => $user['role'],
+                        'avatar' => $user['avatar'] ?? null,
                         'tenantId' => $user['tenant_id']
                     ]
                 ]
@@ -89,7 +88,7 @@ if (isset($_REQUEST['action'])) {
             exit;
         }
 
-        // ---------- 注册（增加 username） ----------
+        // ---------- 注册 ----------
         if ($action === 'register') {
             $input = json_decode(file_get_contents('php://input'), true);
             $username = trim($input['username'] ?? '');
@@ -102,7 +101,11 @@ if (isset($_REQUEST['action'])) {
                 echo json_encode(['code' => 40001, 'message' => '用户名、邮箱和密码为必填项']);
                 exit;
             }
-            // 检查用户名是否已存在
+            if (strlen($username) < 2 || strlen($username) > 30) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '用户名长度2-30位']);
+                exit;
+            }
             $stmt = $pdo->prepare("SELECT id FROM gsk_users WHERE username = ?");
             $stmt->execute([$username]);
             if ($stmt->fetch()) {
@@ -121,7 +124,6 @@ if (isset($_REQUEST['action'])) {
                 exit;
             }
 
-            // 检查邮箱是否已注册
             $stmt = $pdo->prepare("SELECT id FROM gsk_users WHERE email = ?");
             $stmt->execute([$email]);
             if ($stmt->fetch()) {
@@ -132,7 +134,6 @@ if (isset($_REQUEST['action'])) {
 
             $hashed = password_hash($password, PASSWORD_DEFAULT);
 
-            // 检查 real_name 列是否存在（兼容旧表）
             $check = $pdo->query("SHOW COLUMNS FROM gsk_users LIKE 'real_name'");
             $hasRealName = $check->rowCount() > 0;
 
@@ -161,7 +162,7 @@ if (isset($_REQUEST['action'])) {
                 echo json_encode(['code' => 40100, 'message' => '未登录']);
                 exit;
             }
-            $stmt = $pdo->prepare("SELECT id, username, email, qq, role FROM gsk_users WHERE id = ?");
+            $stmt = $pdo->prepare("SELECT id, username, email, qq, role, avatar FROM gsk_users WHERE id = ?");
             $stmt->execute([$_SESSION['user_id']]);
             $user = $stmt->fetch();
             if (!$user) {
@@ -173,6 +174,37 @@ if (isset($_REQUEST['action'])) {
             exit;
         }
 
+        // ---------- 更新头像 ----------
+        if ($action === 'update_avatar') {
+            if (!isset($_SESSION['user_id'])) {
+                http_response_code(401);
+                echo json_encode(['code' => 40100, 'message' => '未登录']);
+                exit;
+            }
+            $input = json_decode(file_get_contents('php://input'), true);
+            $avatar = trim($input['avatar'] ?? '');
+            if (empty($avatar)) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '头像数据不能为空']);
+                exit;
+            }
+            if (!preg_match('/^data:image\/(jpeg|png|gif|webp);base64,/', $avatar)) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '图片格式不支持，请上传 jpg/png/gif/webp']);
+                exit;
+            }
+            $size = strlen($avatar);
+            if ($size > 2.5 * 1024 * 1024) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '图片过大，请压缩后上传']);
+                exit;
+            }
+            $stmt = $pdo->prepare("UPDATE gsk_users SET avatar = ? WHERE id = ?");
+            $stmt->execute([$avatar, $_SESSION['user_id']]);
+            echo json_encode(['code' => 0, 'message' => '头像更新成功']);
+            exit;
+        }
+
         // ---------- 登出 ----------
         if ($action === 'logout') {
             session_destroy();
@@ -180,11 +212,10 @@ if (isset($_REQUEST['action'])) {
             exit;
         }
 
-        // ---------- 获取周常题目（前台只获取已发布的） ----------
+        // ---------- 获取周常 ----------
         if ($action === 'get_weekly') {
             $stmt = $pdo->query("SELECT id, title, content, options, answer, teacher, created_at FROM gsk_weekly WHERE status = 1 ORDER BY created_at DESC");
             $items = $stmt->fetchAll();
-            // 解析 options JSON
             foreach ($items as &$item) {
                 $item['options'] = json_decode($item['options'], true);
             }
@@ -205,7 +236,7 @@ if (isset($_REQUEST['action'])) {
 }
 
 // ================================================================
-// 没有 action 参数，输出 HTML 界面
+// 没有 action 参数，输出 HTML
 // ================================================================
 ob_end_clean();
 header('Content-Type: text/html; charset=utf-8');
@@ -215,10 +246,10 @@ header('Content-Type: text/html; charset=utf-8');
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GSKChem · 联考平台</title>
+  <title>LunaticCho · 联考平台</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <style>
-    /* ===== 样式精简（与之前一致，新增周常卡片样式） ===== */
+    /* ===== 基础样式 ===== */
     * { margin:0; padding:0; box-sizing:border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -375,7 +406,7 @@ header('Content-Type: text/html; charset=utf-8');
     .exam-empty i { font-size: 4rem; color: #d4a373; margin-bottom: 1rem; display: block; }
     .exam-empty h3 { font-size: 1.5rem; color: #0b3b4c; margin-bottom: 0.5rem; }
 
-    /* 博物志翻页书 - 纯图片 */
+    /* ===== 博物志 ===== */
     .book-container {
       position: relative;
       max-width: 700px;
@@ -455,10 +486,10 @@ header('Content-Type: text/html; charset=utf-8');
       text-align: center;
     }
 
-    /* 周常卡片 */
+    /* ===== 周常卡片 ===== */
     .weekly-cards {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
       gap: 1.2rem;
       margin-top: 1rem;
     }
@@ -491,21 +522,9 @@ header('Content-Type: text/html; charset=utf-8');
       border-top: 1px solid #e2e8f0;
     }
     .weekly-detail.open { display: block; }
-    .weekly-detail .content {
-      color: #1e293b;
-      margin-bottom: 0.6rem;
-    }
-    .weekly-detail .options {
-      display: flex;
-      flex-direction: column;
-      gap: 0.3rem;
-    }
-    .weekly-detail .options label {
-      display: flex;
-      align-items: center;
-      gap: 0.6rem;
-      font-size: 0.9rem;
-    }
+    .weekly-detail .content { color: #1e293b; margin-bottom: 0.6rem; }
+    .weekly-detail .options { display: flex; flex-direction: column; gap: 0.3rem; }
+    .weekly-detail .options label { display: flex; align-items: center; gap: 0.6rem; font-size: 0.9rem; }
     .weekly-detail .answer-btn {
       margin-top: 0.6rem;
       background: #0b3b4c;
@@ -516,13 +535,9 @@ header('Content-Type: text/html; charset=utf-8');
       font-size: 0.85rem;
       cursor: pointer;
     }
-    .weekly-detail .feedback {
-      margin-top: 0.4rem;
-      font-weight: 500;
-      font-size: 0.9rem;
-    }
+    .weekly-detail .feedback { margin-top: 0.4rem; font-weight: 500; font-size: 0.9rem; }
 
-    /* 账号样式 */
+    /* ===== 账号 ===== */
     .auth-tabs {
       display: flex;
       border-bottom: 2px solid #e9edf2;
@@ -586,28 +601,75 @@ header('Content-Type: text/html; charset=utf-8');
     .auth-form .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
     .auth-form .form-error { color: #b91c1c; font-size: 0.85rem; background: #fef2f2; padding: 0.4rem 0.8rem; border-radius: 4px; display: none; }
     .auth-form .form-success { color: #0b6b4c; font-size: 0.85rem; background: #f0fdf4; padding: 0.4rem 0.8rem; border-radius: 4px; display: none; }
+
     .user-profile {
       display: none;
       text-align: center;
       padding: 1rem 0;
     }
     .user-profile.active { display: block; }
-    .user-profile .avatar {
-      width: 72px;
-      height: 72px;
+    .user-profile .avatar-wrap {
+      position: relative;
+      width: 100px;
+      height: 100px;
+      margin: 0 auto 0.8rem;
+      cursor: pointer;
+    }
+    .user-profile .avatar-wrap img {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 3px solid #d4a373;
+      background: #f0f4f8;
+    }
+    .user-profile .avatar-wrap .avatar-placeholder {
+      width: 100%;
+      height: 100%;
       border-radius: 50%;
       background: #dbeafe;
       display: flex;
       align-items: center;
       justify-content: center;
-      margin: 0 auto 0.6rem;
-      font-size: 2.2rem;
+      font-size: 3rem;
       color: #0b3b4c;
+      border: 3px solid #d4a373;
+    }
+    .user-profile .avatar-wrap .upload-hint {
+      position: absolute;
+      bottom: 0;
+      right: 0;
+      background: #0b3b4c;
+      color: #fff;
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      border: 2px solid #fff;
     }
     .user-profile .user-email { font-size: 1.1rem; font-weight: 600; color: #0b3b4c; }
     .user-profile .user-qq { color: #64748b; font-size: 0.9rem; }
+    .user-profile .user-role {
+      display: inline-block;
+      background: #dbeafe;
+      color: #0b3b4c;
+      padding: 0.1rem 0.8rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-top: 0.2rem;
+    }
+    .user-profile .btn-group {
+      margin-top: 1rem;
+      display: flex;
+      gap: 0.8rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
     .user-profile .btn-logout {
-      margin-top: 0.8rem;
       background: #e2e8f0;
       color: #1e293b;
       border: none;
@@ -619,8 +681,23 @@ header('Content-Type: text/html; charset=utf-8');
       transition: background 0.15s;
     }
     .user-profile .btn-logout:hover { background: #cbd5e1; }
+    .user-profile .btn-admin {
+      background: #0b3b4c;
+      color: #fff;
+      border: none;
+      padding: 0.4rem 1.8rem;
+      border-radius: 20px;
+      font-weight: 500;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: background 0.15s;
+      text-decoration: none;
+      display: inline-block;
+    }
+    .user-profile .btn-admin:hover { background: #0a2f3d; }
+    #avatarInput { display: none; }
 
-    /* Toast */
+    /* ===== Toast ===== */
     .toast {
       position: fixed;
       bottom: 24px;
@@ -642,7 +719,7 @@ header('Content-Type: text/html; charset=utf-8');
     .toast.success { background: #0b6b4c; }
     .toast.error { background: #b91c1c; }
 
-    /* 响应式 */
+    /* ===== 响应式 ===== */
     @media (max-width: 820px) {
       .navbar { padding: 0 1.5rem; }
       .features-grid { grid-template-columns: 1fr 1fr; }
@@ -680,13 +757,14 @@ header('Content-Type: text/html; charset=utf-8');
     }
     @media (max-width: 400px) {
       .book-pages { height: 220px; }
+      .user-profile .avatar-wrap { width: 80px; height: 80px; }
     }
   </style>
 </head>
 <body>
   <!-- 导航 -->
   <nav class="navbar">
-    <div class="brand"><i class="fas fa-flask"></i> GSKChem</div>
+    <div class="brand"><i class="fas fa-flask"></i> LunaticCho</div>
     <button class="hamburger" id="hamburger"><span></span><span></span><span></span></button>
     <ul class="nav-links" id="navLinks">
       <li><a href="#" class="active" data-page="home">主页</a></li>
@@ -702,12 +780,12 @@ header('Content-Type: text/html; charset=utf-8');
     <section class="page active" id="page-home">
       <div class="hero">
         <div class="hero-logo"><i class="fas fa-flask"></i></div>
-        <h1><i class="fas fa-flask"></i>GSKChem 联考平台</h1>
+        <h1><i class="fas fa-flask"></i>LunaticCho 联考平台</h1>
         <p>化学学科联考 · 答题卡收集 · 数据驱动教学</p>
       </div>
       <div class="card" style="border-top: 4px solid #d4a373;">
         <div class="card-title"><i class="fas fa-flag"></i>平台简介</div>
-        <p style="color:#334155;">GSKChem 为化学联考提供从试卷发布、答题卡扫描上传到成绩统计的全流程支持。考生通过邮箱注册，可随时上传答题卡，教师端统一收集，高效便捷。</p>
+        <p style="color:#334155;">LunaticCho 为化学联考提供从试卷发布、答题卡扫描上传到成绩统计的全流程支持。考生通过邮箱注册，可随时上传答题卡，教师端统一收集，高效便捷。</p>
       </div>
       <div class="card">
         <div class="card-title"><i class="fas fa-star"></i>核心功能</div>
@@ -753,7 +831,7 @@ header('Content-Type: text/html; charset=utf-8');
           </div>
         </div>
         <p style="text-align:center;color:#94a3b8;font-size:0.9rem;margin-top:0.8rem;">
-          <i class="fas fa-info-circle"></i> 将您的图片命名为 01.jpg ~ 08.jpg 放在本文件同目录下。
+          <i class="fas fa-info-circle"></i> 将您的图片命名为 01.jpg ~ 08.jpg 放在 img/ 文件夹下。
         </p>
       </div>
     </section>
@@ -773,10 +851,19 @@ header('Content-Type: text/html; charset=utf-8');
       <div class="card" style="max-width:560px; margin:0 auto;">
         <div class="card-title" style="justify-content:center;"><i class="fas fa-user-circle"></i>账号中心</div>
         <div class="user-profile" id="userProfile">
-          <div class="avatar"><i class="fas fa-user"></i></div>
+          <div class="avatar-wrap" id="avatarWrap">
+            <div class="avatar-placeholder" id="avatarPlaceholder"><i class="fas fa-user"></i></div>
+            <img id="avatarImg" style="display:none;" alt="头像">
+            <div class="upload-hint"><i class="fas fa-camera"></i></div>
+          </div>
+          <input type="file" id="avatarInput" accept="image/*">
           <div class="user-email" id="profileEmail">user@example.com</div>
           <div class="user-qq" id="profileQQ">QQ: --</div>
-          <button class="btn-logout" id="logoutBtn"><i class="fas fa-sign-out-alt"></i> 退出</button>
+          <div class="user-role" id="profileRole">MARKER</div>
+          <div class="btn-group">
+            <button class="btn-logout" id="logoutBtn"><i class="fas fa-sign-out-alt"></i> 退出</button>
+            <a href="admin.php" class="btn-admin" id="adminBtn" style="display:none;"><i class="fas fa-tools"></i> 进入后台</a>
+          </div>
         </div>
         <div class="auth-tabs" id="authTabs">
           <button class="active" data-tab="login">登录</button>
@@ -792,7 +879,7 @@ header('Content-Type: text/html; charset=utf-8');
           <div class="input-group"><i class="fas fa-lock"></i><input type="password" id="loginPassword" placeholder="请输入密码" required /></div>
           <button type="submit" class="btn-primary">登录</button>
         </form>
-        <!-- 注册（增加用户名） -->
+        <!-- 注册 -->
         <form class="auth-form" id="registerForm">
           <div class="form-error" id="registerError"></div>
           <div class="form-success" id="registerSuccess"></div>
@@ -810,7 +897,7 @@ header('Content-Type: text/html; charset=utf-8');
     </section>
   </div>
 
-  <footer class="footer"><p>© 2026 <span>GSKChem</span> · 化学联考平台</p></footer>
+  <footer class="footer"><p>© 2026 <span>LunaticCho</span> · 化学联考平台</p></footer>
   <div class="toast" id="toast"></div>
 
   <script>
@@ -849,6 +936,9 @@ header('Content-Type: text/html; charset=utf-8');
         },
         async getWeekly() {
             return this._request('get_weekly');
+        },
+        async updateAvatar(avatar) {
+            return this._request('update_avatar', { avatar });
         }
       };
 
@@ -887,17 +977,81 @@ header('Content-Type: text/html; charset=utf-8');
 
       let currentUser = null;
 
+      // ========== 头像上传 ==========
+      function handleAvatarUpload(file) {
+        if (!file) return;
+        if (!file.type.startsWith('image/')) {
+          showToast('请上传图片文件', 'error');
+          return;
+        }
+        const maxSize = 2 * 1024 * 1024;
+        if (file.size > maxSize) {
+          showToast('图片不能超过2MB', 'error');
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = async function(e) {
+          const base64 = e.target.result;
+          try {
+            const res = await API.updateAvatar(base64);
+            if (res.code === 0) {
+              showToast('头像更新成功', 'success');
+              // 更新显示
+              const img = $('#avatarImg');
+              const placeholder = $('#avatarPlaceholder');
+              img.src = base64;
+              img.style.display = 'block';
+              placeholder.style.display = 'none';
+              if (currentUser) currentUser.avatar = base64;
+            } else {
+              showToast(res.message || '上传失败', 'error');
+            }
+          } catch (err) {
+            showToast(err.message || '上传失败', 'error');
+          }
+        };
+        reader.readAsDataURL(file);
+      }
+
+      // ========== 用户状态更新 ==========
       function updateUIForUser(user) {
         currentUser = user;
         const profile = $('#userProfile');
         const tabs = $('#authTabs');
         const forms = $$('.auth-form');
+        const adminBtn = $('#adminBtn');
+        const roleLabel = $('#profileRole');
+
         if (user) {
           profile.classList.add('active');
           tabs.style.display = 'none';
           forms.forEach(f => f.style.display = 'none');
+
           $('#profileEmail').textContent = user.username + ' (' + user.email + ')';
           $('#profileQQ').textContent = 'QQ: ' + (user.qq || '未设置');
+
+          // 角色显示
+          const roleMap = { 'ADMIN': '管理员', 'TEACHER': '教师', 'MARKER': '学生' };
+          roleLabel.textContent = roleMap[user.role] || user.role;
+
+          // 头像
+          const img = $('#avatarImg');
+          const placeholder = $('#avatarPlaceholder');
+          if (user.avatar) {
+            img.src = user.avatar;
+            img.style.display = 'block';
+            placeholder.style.display = 'none';
+          } else {
+            img.style.display = 'none';
+            placeholder.style.display = 'flex';
+          }
+
+          // 后台按钮：teacher/admin 可见
+          if (user.role === 'ADMIN' || user.role === 'TEACHER') {
+            adminBtn.style.display = 'inline-block';
+          } else {
+            adminBtn.style.display = 'none';
+          }
         } else {
           profile.classList.remove('active');
           tabs.style.display = 'flex';
@@ -910,8 +1064,8 @@ header('Content-Type: text/html; charset=utf-8');
           $('#loginSuccess').style.display = 'none';
           $('#registerError').style.display = 'none';
           $('#registerSuccess').style.display = 'none';
+          adminBtn.style.display = 'none';
         }
-        // 刷新周常（无需依赖登录）
         loadWeekly();
       }
 
@@ -1030,6 +1184,22 @@ header('Content-Type: text/html; charset=utf-8');
         }
       });
 
+      // 头像上传点击
+      $('#avatarWrap').addEventListener('click', function() {
+        if (!currentUser) {
+          showToast('请先登录', 'error');
+          return;
+        }
+        $('#avatarInput').click();
+      });
+
+      $('#avatarInput').addEventListener('change', function() {
+        if (this.files.length > 0) {
+          handleAvatarUpload(this.files[0]);
+        }
+        this.value = '';
+      });
+
       // ========== 周常加载 ==========
       async function loadWeekly() {
         const container = $('#weeklyCards');
@@ -1037,9 +1207,9 @@ header('Content-Type: text/html; charset=utf-8');
           const res = await API.getWeekly();
           if (res.code === 0 && res.data.length > 0) {
             let html = '';
-            res.data.forEach((item, index) => {
+            res.data.forEach((item) => {
               const optionsHtml = item.options.map((opt, i) => {
-                const letter = String.fromCharCode(65 + i); // A, B, C, D
+                const letter = String.fromCharCode(65 + i);
                 return `<label><input type="radio" name="q_${item.id}" value="${letter}"> ${opt}</label>`;
               }).join('');
               html += `
@@ -1060,14 +1230,11 @@ header('Content-Type: text/html; charset=utf-8');
             });
             container.innerHTML = html;
 
-            // 点击卡片展开/收起
             container.querySelectorAll('.weekly-card').forEach(card => {
               const detail = card.querySelector('.weekly-detail');
               card.addEventListener('click', function(e) {
-                // 避免点击按钮时也触发
                 if (e.target.closest('.answer-btn') || e.target.closest('input')) return;
                 const isOpen = detail.classList.contains('open');
-                // 关闭所有其他卡片
                 container.querySelectorAll('.weekly-detail').forEach(d => d.classList.remove('open'));
                 if (!isOpen) {
                   detail.classList.add('open');
@@ -1075,7 +1242,6 @@ header('Content-Type: text/html; charset=utf-8');
               });
             });
 
-            // 答案按钮
             container.querySelectorAll('.answer-btn').forEach(btn => {
               btn.addEventListener('click', function(e) {
                 e.stopPropagation();
@@ -1147,7 +1313,7 @@ header('Content-Type: text/html; charset=utf-8');
         if (!e.target.closest('.navbar')) navList.classList.remove('open');
       });
 
-      console.log('GSKChem 前台启动 (支持用户名)');
+      console.log('LunaticCho 前台启动');
     })();
   </script>
 </body>
