@@ -1,7 +1,6 @@
 <?php
 /**
- * LunaticCho 前台 - 主页集成周常进度
- * 登录后在主页直接显示答题情况
+ * LunaticCho 前台 - 周常显示最近考试排行榜 + 防重复答题
  */
 
 error_reporting(E_ALL);
@@ -217,7 +216,7 @@ if (isset($_REQUEST['action'])) {
             try {
                 $stmt = $pdo->query("SHOW TABLES LIKE 'gsk_exams'");
                 if ($stmt->rowCount() == 0) {
-                    echo json_encode(['code' => 40400, 'message' => '表 gsk_exams 不存在，请先执行 SQL 建表语句']);
+                    echo json_encode(['code' => 40400, 'message' => '表 gsk_exams 不存在']);
                     exit;
                 }
                 $stmt = $pdo->query("SELECT * FROM gsk_exams WHERE status = 'published' ORDER BY published_at DESC");
@@ -237,7 +236,7 @@ if (isset($_REQUEST['action'])) {
             exit;
         }
 
-        // ---------- 获取用户在各考试中的答题状态（主页用） ----------
+        // ---------- 获取用户在各考试中的答题状态 ----------
         if ($action === 'get_user_exam_status') {
             if (!isset($_SESSION['user_id'])) {
                 echo json_encode(['code' => 40100, 'message' => '未登录']);
@@ -342,24 +341,6 @@ if (isset($_REQUEST['action'])) {
             exit;
         }
 
-        // ---------- 检查用户是否已作答 ----------
-        if ($action === 'check_answered') {
-            if (!isset($_SESSION['user_id'])) {
-                echo json_encode(['code' => 40100, 'message' => '未登录']);
-                exit;
-            }
-            $exam_id = intval($_GET['exam_id'] ?? 0);
-            if (!$exam_id) {
-                echo json_encode(['code' => 40001, 'message' => '缺少考试ID']);
-                exit;
-            }
-            $stmt = $pdo->prepare("SELECT COUNT(*) as cnt FROM gsk_answers WHERE exam_id = ? AND user_id = ?");
-            $stmt->execute([$exam_id, $_SESSION['user_id']]);
-            $cnt = $stmt->fetch()['cnt'];
-            echo json_encode(['code' => 0, 'data' => ['answered' => $cnt > 0]]);
-            exit;
-        }
-
         // 未知 action
         http_response_code(400);
         echo json_encode(['code' => 40001, 'message' => '无效的操作']);
@@ -386,6 +367,7 @@ header('Content-Type: text/html; charset=utf-8');
   <title>LunaticCho · 联考平台</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <style>
+    /* ===== 全局样式 ===== */
     * { margin:0; padding:0; box-sizing:border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -535,7 +517,7 @@ header('Content-Type: text/html; charset=utf-8');
     .feature-item h4 { font-weight: 600; color: #0b3b4c; }
     .feature-item p { color: #64748b; font-size: 0.9rem; margin-top: 0.2rem; }
 
-    /* ===== 主页 - 周常进度卡片 ===== */
+    /* ===== 主页进度卡片 ===== */
     .progress-card {
       background: #f8fafc;
       border-radius: 10px;
@@ -554,7 +536,7 @@ header('Content-Type: text/html; charset=utf-8');
     .progress-card .info { flex: 1; }
     .progress-card .title { font-weight: 600; color: #0b3b4c; font-size: 1rem; }
     .progress-card .meta { font-size: 0.85rem; color: #64748b; }
-    .progress-card .status-badge {
+    .status-badge {
       display: inline-block;
       padding: 0.15rem 0.8rem;
       border-radius: 20px;
@@ -572,15 +554,7 @@ header('Content-Type: text/html; charset=utf-8');
     }
     .no-exams-msg i { font-size: 2.5rem; display: block; margin-bottom: 0.5rem; color: #d4a373; }
 
-    .exam-empty {
-      text-align: center;
-      padding: 3rem 0;
-      color: #94a3b8;
-    }
-    .exam-empty i { font-size: 4rem; color: #d4a373; margin-bottom: 1rem; display: block; }
-    .exam-empty h3 { font-size: 1.5rem; color: #0b3b4c; margin-bottom: 0.5rem; }
-
-    /* 博物志翻页书 */
+    /* ===== 博物志翻页书 ===== */
     .book-container {
       position: relative;
       max-width: 700px;
@@ -660,7 +634,7 @@ header('Content-Type: text/html; charset=utf-8');
       text-align: center;
     }
 
-    /* 周常 - 考试列表 */
+    /* ===== 周常页面 ===== */
     .exam-cards {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -694,6 +668,53 @@ header('Content-Type: text/html; charset=utf-8');
       background: #d1fae5;
       color: #0b6b4c;
     }
+    .exam-card-item .answered-badge {
+      display: inline-block;
+      padding: 0.1rem 0.6rem;
+      border-radius: 20px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      background: #fef3c7;
+      color: #b45309;
+    }
+
+    /* 排行榜区域（周常页面顶部） */
+    .ranking-section {
+      background: #f8fafc;
+      border-radius: 10px;
+      padding: 1.2rem 1.5rem;
+      margin-bottom: 1.5rem;
+      border: 1px solid #e9edf2;
+    }
+    .ranking-section h3 {
+      color: #0b3b4c;
+      margin-bottom: 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .ranking-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+    .ranking-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.3rem 0.5rem;
+      border-bottom: 1px solid #e9edf2;
+    }
+    .ranking-row .rank {
+      font-weight: 700;
+      width: 30px;
+      text-align: center;
+    }
+    .ranking-row .rank.gold { color: #f59e0b; }
+    .ranking-row .rank.silver { color: #94a3b8; }
+    .ranking-row .rank.bronze { color: #d97706; }
+    .ranking-row .name { flex: 1; }
+    .ranking-row .score { font-weight: 700; color: #0b3b4c; }
 
     /* 答题模式 */
     .exam-container { max-width: 800px; margin: 0 auto; }
@@ -772,7 +793,7 @@ header('Content-Type: text/html; charset=utf-8');
     .btn-submit-exam:hover { background: #0a2f3d; }
     .btn-submit-exam:disabled { opacity: 0.6; cursor: not-allowed; }
 
-    /* 排行榜 */
+    /* 排行榜（独立视图） */
     .ranking-container { max-width: 600px; margin: 0 auto; }
     .ranking-item {
       display: flex;
@@ -819,7 +840,7 @@ header('Content-Type: text/html; charset=utf-8');
     }
     .my-score .big-score { font-size: 2rem; font-weight: 700; color: #0b3b4c; }
 
-    /* 账号 */
+    /* 账号样式（略） */
     .auth-tabs {
       display: flex;
       border-bottom: 2px solid #e9edf2;
@@ -1070,15 +1091,10 @@ header('Content-Type: text/html; charset=utf-8');
         <div class="card-title"><i class="fas fa-flag"></i>平台简介</div>
         <p style="color:#334155;">LunaticCho 为化学联考提供从试卷发布、答题卡扫描上传到成绩统计的全流程支持。考生通过邮箱注册，可随时上传答题卡，教师端统一收集，高效便捷。</p>
       </div>
-
-      <!-- ===== 我的周常进度（主页集成） ===== -->
       <div class="card" id="homeProgressCard">
         <div class="card-title"><i class="fas fa-calendar-check"></i>我的周常进度</div>
-        <div id="homeProgressContent">
-          <p style="color:#94a3b8; text-align:center; padding:0.5rem 0;">加载中...</p>
-        </div>
+        <div id="homeProgressContent"><p style="color:#94a3b8;text-align:center;padding:0.5rem 0;">加载中...</p></div>
       </div>
-
       <div class="card">
         <div class="card-title"><i class="fas fa-star"></i>核心功能</div>
         <div class="features-grid">
@@ -1093,11 +1109,7 @@ header('Content-Type: text/html; charset=utf-8');
     <section class="page" id="page-exam">
       <div class="card">
         <div class="card-title"><i class="fas fa-pencil-alt"></i>联考管理</div>
-        <div class="exam-empty">
-          <i class="fas fa-hourglass-half"></i>
-          <h3>联考功能开发中</h3>
-          <p>敬请期待后续更新，届时将支持考试创建、答题卡上传与阅卷。</p>
-        </div>
+        <div class="exam-empty"><i class="fas fa-hourglass-half"></i><h3>联考功能开发中</h3><p>敬请期待后续更新。</p></div>
       </div>
     </section>
 
@@ -1128,7 +1140,7 @@ header('Content-Type: text/html; charset=utf-8');
       </div>
     </section>
 
-    <!-- 周常 -->
+    <!-- ===== 周常 ===== -->
     <section class="page" id="page-weekly">
       <div class="card">
         <div class="card-title"><i class="fas fa-calendar-week"></i>周常 · 化学挑战</div>
@@ -1251,9 +1263,6 @@ header('Content-Type: text/html; charset=utf-8');
         },
         async getRanking(exam_id) {
             return this._get('get_ranking', { exam_id });
-        },
-        async checkAnswered(exam_id) {
-            return this._get('check_answered', { exam_id });
         }
       };
 
@@ -1379,7 +1388,6 @@ header('Content-Type: text/html; charset=utf-8');
           $('#registerSuccess').style.display = 'none';
           adminBtn.style.display = 'none';
         }
-        // 渲染主页进度和周常列表
         renderHomeProgress();
         renderWeekly();
       }
@@ -1544,7 +1552,7 @@ header('Content-Type: text/html; charset=utf-8');
                 statusClass = 'status-pending';
               }
               html += `
-                <div class="progress-card" onclick="window.LunaticCho.startExam(${exam.id})">
+                <div class="progress-card" onclick="window.LunaticCho.handleExamClick(${exam.id})">
                   <div class="info">
                     <div class="title">📝 ${exam.title}</div>
                     <div class="meta">${exam.question_count} 题 · 总分 ${exam.total_score}</div>
@@ -1557,12 +1565,7 @@ header('Content-Type: text/html; charset=utf-8');
           } else if (res.code !== 0) {
             container.innerHTML = `<p style="color:#b91c1c;text-align:center;">❌ ${res.message || '加载失败'}</p>`;
           } else {
-            container.innerHTML = `
-              <div class="no-exams-msg">
-                <i class="fas fa-calendar-plus"></i>
-                <p>暂无已发布的考试，请关注后续更新。</p>
-              </div>
-            `;
+            container.innerHTML = `<div class="no-exams-msg"><i class="fas fa-calendar-plus"></i><p>暂无已发布的考试</p></div>`;
           }
         } catch (e) {
           container.innerHTML = `<p style="color:#b91c1c;text-align:center;">❌ 加载失败，请稍后重试</p>`;
@@ -1570,43 +1573,109 @@ header('Content-Type: text/html; charset=utf-8');
         }
       }
 
-      // ========== 周常 - 考试列表 ==========
+      // ========== 周常页面 ==========
       async function renderWeekly() {
         const container = $('#weeklyContainer');
         try {
-          const res = await API.getExams();
-          if (res.code === 0 && res.data && res.data.length > 0) {
-            let html = '<div class="exam-cards">';
-            res.data.forEach(exam => {
-              html += `
-                <div class="exam-card-item" onclick="window.LunaticCho.startExam(${exam.id})">
-                  <div class="title">📝 ${exam.title}</div>
-                  <div class="meta">
-                    <span>👩‍🏫 ${exam.teacher}</span>
-                    <span>📅 ${new Date(exam.published_at).toLocaleDateString()}</span>
+          // 获取考试列表
+          const examsRes = await API.getExams();
+          if (examsRes.code !== 0 || !examsRes.data || examsRes.data.length === 0) {
+            container.innerHTML = '<p style="color:#94a3b8; text-align:center; padding:1rem 0;">暂无已发布的考试</p>';
+            return;
+          }
+          const exams = examsRes.data;
+          const latestExam = exams[0]; // 已按 published_at DESC 排序
+
+          // 获取该考试的排行榜
+          let rankingHtml = '';
+          try {
+            const rankRes = await API.getRanking(latestExam.id);
+            if (rankRes.code === 0 && rankRes.data.ranking && rankRes.data.ranking.length > 0) {
+              const ranking = rankRes.data.ranking;
+              let rows = '';
+              ranking.forEach((item, idx) => {
+                const rankClass = idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : '';
+                const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
+                rows += `
+                  <div class="ranking-row">
+                    <div class="rank ${rankClass}">${medal}</div>
+                    <div class="name">${item.username}</div>
+                    <div class="score">${item.total_score} 分</div>
                   </div>
-                  <div style="margin-top:0.5rem; font-size:0.85rem; color:#64748b;">
-                    ${exam.question_count} 题 · 总分 ${exam.total_score}
-                    <span class="badge-status">已发布</span>
-                  </div>
+                `;
+              });
+              rankingHtml = `
+                <div class="ranking-section">
+                  <h3><i class="fas fa-trophy"></i> 最新考试「${latestExam.title}」排行榜</h3>
+                  <div class="ranking-list">${rows}</div>
                 </div>
               `;
-            });
-            html += '</div>';
-            container.innerHTML = html;
-          } else if (res.code !== 0) {
-            container.innerHTML = '<p style="color:#b91c1c; text-align:center; padding:1rem 0;">❌ ' + (res.message || '加载失败') + '</p>';
-          } else {
-            container.innerHTML = '<p style="color:#94a3b8; text-align:center; padding:1rem 0;">暂无已发布的考试，请关注后续更新。</p>';
+            } else {
+              rankingHtml = `
+                <div class="ranking-section">
+                  <h3><i class="fas fa-info-circle"></i> 最新考试「${latestExam.title}」</h3>
+                  <p style="color:#94a3b8;">暂无已批改的成绩</p>
+                </div>
+              `;
+            }
+          } catch (e) {
+            rankingHtml = `<div class="ranking-section"><p style="color:#94a3b8;">排行榜加载失败</p></div>`;
           }
+
+          // 构建考试卡片列表
+          let cardsHtml = '<div class="exam-cards">';
+          exams.forEach(exam => {
+            // 检查用户是否已作答（需要通过状态接口获取，但这里先使用通用方式，后续通过点击时的检查）
+            cardsHtml += `
+              <div class="exam-card-item" onclick="window.LunaticCho.handleExamClick(${exam.id})">
+                <div class="title">📝 ${exam.title}</div>
+                <div class="meta">
+                  <span>👩‍🏫 ${exam.teacher}</span>
+                  <span>📅 ${new Date(exam.published_at).toLocaleDateString()}</span>
+                </div>
+                <div style="margin-top:0.5rem; font-size:0.85rem; color:#64748b;">
+                  ${exam.question_count} 题 · 总分 ${exam.total_score}
+                  <span class="badge-status">已发布</span>
+                </div>
+              </div>
+            `;
+          });
+          cardsHtml += '</div>';
+
+          container.innerHTML = rankingHtml + cardsHtml;
+
         } catch (e) {
           container.innerHTML = '<p style="color:#b91c1c; text-align:center; padding:1rem 0;">❌ 加载失败，请稍后重试。</p>';
           console.error('周常加载错误:', e);
         }
       }
 
-      // ========== 开始考试 ==========
+      // ========== 处理考试点击（防重复答题） ==========
       window.LunaticCho = {
+        handleExamClick: async function(examId) {
+          if (!currentUser) {
+            showToast('请先登录', 'error');
+            setActivePage('account');
+            return;
+          }
+          // 检查用户是否已作答
+          try {
+            const statusRes = await API.getUserExamStatus();
+            if (statusRes.code === 0 && statusRes.data) {
+              const examStatus = statusRes.data.find(e => e.id === examId);
+              if (examStatus && examStatus.has_answered) {
+                // 已作答，直接查看排行榜
+                this.viewRanking(examId);
+                return;
+              }
+            }
+          } catch (e) {
+            // 查询失败，允许进入答题（保守策略）
+          }
+          // 未作答，进入答题
+          this.startExam(examId);
+        },
+
         startExam: async function(examId) {
           if (!currentUser) {
             showToast('请先登录后再答题', 'error');
@@ -1619,7 +1688,7 @@ header('Content-Type: text/html; charset=utf-8');
             if (res.code === 0) {
               examQuestions = res.data.questions || [];
               const exam = res.data.exam || { title: '考试', description: '' };
-              renderExam(exam, examQuestions);
+              this.renderExam(exam, examQuestions);
             } else {
               showToast(res.message || '加载题目失败', 'error');
             }
@@ -1628,9 +1697,105 @@ header('Content-Type: text/html; charset=utf-8');
           }
         },
 
+        renderExam: function(exam, questions) {
+          const container = $('#weeklyContainer');
+          if (!questions || questions.length === 0) {
+            container.innerHTML = '<p style="color:#94a3b8; text-align:center; padding:1rem 0;">该考试暂无题目。</p>';
+            return;
+          }
+          let html = `
+            <div class="exam-container">
+              <div class="exam-header">
+                <h2>${exam.title || '考试'}</h2>
+                <p>${exam.description || ''}</p>
+                <p style="font-size:0.85rem; color:#94a3b8;">共 ${questions.length} 题，总分 ${questions.reduce((s, q) => s + parseInt(q.score || 0), 0)} 分</p>
+                <button onclick="window.LunaticCho.backToExams()" style="background:none; border:none; color:#2563eb; cursor:pointer; font-size:0.9rem;">← 返回考试列表</button>
+              </div>
+              <form id="examForm">
+          `;
+          questions.forEach((q, idx) => {
+            const qNum = idx + 1;
+            const typeMap = { 'single': '单选题', 'multiple': '多选题', 'fill': '填空题', 'essay': '解答题' };
+            html += `
+              <div class="question-item">
+                <div class="q-header">
+                  <span>第 ${qNum} 题 <span class="q-type">${typeMap[q.type] || q.type}</span></span>
+                  <span>${q.score || 0} 分</span>
+                </div>
+                <div class="q-content">${q.content || ''}</div>
+                <div class="q-options">
+            `;
+            if (q.type === 'single') {
+              const opts = q.options ? JSON.parse(q.options) : [];
+              opts.forEach((opt, oi) => {
+                const letter = String.fromCharCode(65 + oi);
+                html += `<label><input type="radio" name="q_${q.id}" value="${letter}"> ${opt}</label>`;
+              });
+            } else if (q.type === 'multiple') {
+              const opts = q.options ? JSON.parse(q.options) : [];
+              opts.forEach((opt, oi) => {
+                const letter = String.fromCharCode(65 + oi);
+                html += `<label><input type="checkbox" name="q_${q.id}" value="${letter}"> ${opt}</label>`;
+              });
+            } else if (q.type === 'fill') {
+              html += `<input type="text" name="q_${q.id}" placeholder="请输入答案" style="width:100%; padding:0.5rem; border:1px solid #d1d9e6; border-radius:6px;">`;
+            } else { // essay
+              html += `<textarea name="q_${q.id}" placeholder="请输入你的解答" rows="4"></textarea>`;
+            }
+            html += `</div></div>`;
+          });
+          html += `
+                <button type="submit" class="btn-submit-exam">提交答案</button>
+              </form>
+              <div id="examResult" style="margin-top:1rem;"></div>
+            </div>
+          `;
+          container.innerHTML = html;
+
+          document.getElementById('examForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            const answers = {};
+            for (let [key, value] of formData.entries()) {
+              const qid = parseInt(key.replace('q_', ''));
+              if (value && value.trim()) {
+                if (answers[qid]) {
+                  answers[qid] += ',' + value.trim();
+                } else {
+                  answers[qid] = value.trim();
+                }
+              }
+            }
+            if (Object.keys(answers).length === 0) {
+              showToast('请至少回答一道题', 'error');
+              return;
+            }
+            try {
+              const res = await API.submitAnswers(currentExamId, answers);
+              if (res.code === 0) {
+                document.getElementById('examResult').innerHTML = `
+                  <div style="background:#d1fae5; padding:1rem; border-radius:8px; text-align:center; color:#0b6b4c;">
+                    <i class="fas fa-check-circle" style="font-size:2rem; display:block; margin-bottom:0.5rem;"></i>
+                    ${res.message}
+                    <br><br>
+                    <button onclick="window.LunaticCho.viewRanking(${currentExamId})" class="btn" style="background:#0b3b4c; color:#fff; border:none; padding:0.5rem 1.5rem; border-radius:20px; cursor:pointer;">
+                      查看排行榜
+                    </button>
+                  </div>
+                `;
+                document.querySelector('.btn-submit-exam').disabled = true;
+                renderHomeProgress();
+              } else {
+                showToast(res.message || '提交失败', 'error');
+              }
+            } catch (e) {
+              showToast(e.message || '提交失败', 'error');
+            }
+          });
+        },
+
         backToExams: function() {
           renderWeekly();
-          // 刷新主页进度
           renderHomeProgress();
         },
 
@@ -1683,104 +1848,6 @@ header('Content-Type: text/html; charset=utf-8');
         }
       };
 
-      function renderExam(exam, questions) {
-        const container = $('#weeklyContainer');
-        if (!questions || questions.length === 0) {
-          container.innerHTML = '<p style="color:#94a3b8; text-align:center; padding:1rem 0;">该考试暂无题目。</p>';
-          return;
-        }
-        let html = `
-          <div class="exam-container">
-            <div class="exam-header">
-              <h2>${exam.title || '考试'}</h2>
-              <p>${exam.description || ''}</p>
-              <p style="font-size:0.85rem; color:#94a3b8;">共 ${questions.length} 题，总分 ${questions.reduce((s, q) => s + parseInt(q.score || 0), 0)} 分</p>
-              <button onclick="window.LunaticCho.backToExams()" style="background:none; border:none; color:#2563eb; cursor:pointer; font-size:0.9rem;">← 返回考试列表</button>
-            </div>
-            <form id="examForm">
-        `;
-        questions.forEach((q, idx) => {
-          const qNum = idx + 1;
-          const typeMap = { 'single': '单选题', 'multiple': '多选题', 'fill': '填空题', 'essay': '解答题' };
-          html += `
-            <div class="question-item">
-              <div class="q-header">
-                <span>第 ${qNum} 题 <span class="q-type">${typeMap[q.type] || q.type}</span></span>
-                <span>${q.score || 0} 分</span>
-              </div>
-              <div class="q-content">${q.content || ''}</div>
-              <div class="q-options">
-          `;
-          if (q.type === 'single') {
-            const opts = q.options ? JSON.parse(q.options) : [];
-            opts.forEach((opt, oi) => {
-              const letter = String.fromCharCode(65 + oi);
-              html += `<label><input type="radio" name="q_${q.id}" value="${letter}"> ${opt}</label>`;
-            });
-          } else if (q.type === 'multiple') {
-            const opts = q.options ? JSON.parse(q.options) : [];
-            opts.forEach((opt, oi) => {
-              const letter = String.fromCharCode(65 + oi);
-              html += `<label><input type="checkbox" name="q_${q.id}" value="${letter}"> ${opt}</label>`;
-            });
-          } else if (q.type === 'fill') {
-            html += `<input type="text" name="q_${q.id}" placeholder="请输入答案" style="width:100%; padding:0.5rem; border:1px solid #d1d9e6; border-radius:6px;">`;
-          } else { // essay
-            html += `<textarea name="q_${q.id}" placeholder="请输入你的解答" rows="4"></textarea>`;
-          }
-          html += `</div></div>`;
-        });
-        html += `
-              <button type="submit" class="btn-submit-exam">提交答案</button>
-            </form>
-            <div id="examResult" style="margin-top:1rem;"></div>
-          </div>
-        `;
-        container.innerHTML = html;
-
-        document.getElementById('examForm').addEventListener('submit', async function(e) {
-          e.preventDefault();
-          const formData = new FormData(this);
-          const answers = {};
-          for (let [key, value] of formData.entries()) {
-            const qid = parseInt(key.replace('q_', ''));
-            if (value && value.trim()) {
-              if (answers[qid]) {
-                answers[qid] += ',' + value.trim();
-              } else {
-                answers[qid] = value.trim();
-              }
-            }
-          }
-          if (Object.keys(answers).length === 0) {
-            showToast('请至少回答一道题', 'error');
-            return;
-          }
-          try {
-            const res = await API.submitAnswers(currentExamId, answers);
-            if (res.code === 0) {
-              document.getElementById('examResult').innerHTML = `
-                <div style="background:#d1fae5; padding:1rem; border-radius:8px; text-align:center; color:#0b6b4c;">
-                  <i class="fas fa-check-circle" style="font-size:2rem; display:block; margin-bottom:0.5rem;"></i>
-                  ${res.message}
-                  <br><br>
-                  <button onclick="window.LunaticCho.viewRanking(${currentExamId})" class="btn" style="background:#0b3b4c; color:#fff; border:none; padding:0.5rem 1.5rem; border-radius:20px; cursor:pointer;">
-                    查看排行榜
-                  </button>
-                </div>
-              `;
-              document.querySelector('.btn-submit-exam').disabled = true;
-              // 刷新主页进度
-              renderHomeProgress();
-            } else {
-              showToast(res.message || '提交失败', 'error');
-            }
-          } catch (e) {
-            showToast(e.message || '提交失败', 'error');
-          }
-        });
-      }
-
       // ========== 翻页书 ==========
       const pages_book = $$('.book-page');
       const prevBtn = $('#prevPage');
@@ -1822,7 +1889,7 @@ header('Content-Type: text/html; charset=utf-8');
         if (!e.target.closest('.navbar')) navList.classList.remove('open');
       });
 
-      console.log('LunaticCho 前台启动完成（主页集成周常进度）');
+      console.log('LunaticCho 前台启动完成（周常排行榜 + 防重复答题）');
     })();
   </script>
 </body>
