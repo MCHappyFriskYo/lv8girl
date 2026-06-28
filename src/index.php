@@ -1253,7 +1253,7 @@ header('Content-Type: text/html; charset=utf-8');
       'use strict';
 
       // ========== PDF 阅读器逻辑 ==========
-      const PDF_URL = 'uploads/yan_shi_bo_wu_zhi.pdf';
+      const PDF_URL = 'yan_shi_bo_wu_zhi.pdf';
       let pdfDoc = null,
           pageNum = 1,
           pageRendering = false,
