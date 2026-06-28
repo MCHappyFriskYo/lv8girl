@@ -1,6 +1,6 @@
 <?php
 /**
- * LunaticCho 管理后台 - 修复阅卷重复显示 + 支持二批
+ * LunaticCho 管理后台 - 修复学生列表查询
  */
 
 session_start();
@@ -184,17 +184,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         $pdo->beginTransaction();
         try {
-            // 更新答题记录（无论之前状态如何，都更新）
             $stmt = $pdo->prepare("UPDATE gsk_answers SET score = ?, status = 'graded' WHERE id = ?");
             $stmt->execute([$score, $answer_id]);
             
-            // 重新计算该学生该考试的总分
             $stmt = $pdo->prepare("SELECT SUM(score) as total FROM gsk_answers WHERE exam_id = ? AND user_id = ? AND status = 'graded'");
             $stmt->execute([$exam_id, $user_id]);
             $total = $stmt->fetch();
             $totalScore = $total['total'] ?? 0;
             
-            // 检查是否所有题目都已批改
             $stmt = $pdo->prepare("SELECT COUNT(*) as pending FROM gsk_answers WHERE exam_id = ? AND user_id = ? AND status = 'pending'");
             $stmt->execute([$exam_id, $user_id]);
             $pending = $stmt->fetch();
@@ -223,7 +220,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->beginTransaction();
         try {
             foreach ($questions as $q) {
-                // 获取该题所有待批改的答案（包括已经批改的，我们覆盖更新）
                 $stmt2 = $pdo->prepare("SELECT id, user_id, answer FROM gsk_answers WHERE question_id = ?");
                 $stmt2->execute([$q['id']]);
                 $answers = $stmt2->fetchAll();
@@ -247,7 +243,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
             
-            // 重新计算所有学生总分
             $stmt = $pdo->prepare("SELECT DISTINCT user_id FROM gsk_answers WHERE exam_id = ?");
             $stmt->execute([$exam_id]);
             $users = $stmt->fetchAll();
@@ -296,11 +291,12 @@ if ($exam_id) {
         $stmt->execute([$exam_id]);
         $questions = $stmt->fetchAll();
         
-        // 修复：使用 GROUP BY 确保每个学生只出现一次
+        // 修复查询：LEFT JOIN gsk_results 获取总分和状态
         $stmt = $pdo->prepare("SELECT u.id, u.username, u.email, r.total_score, r.status as result_status 
                                FROM gsk_users u 
+                               LEFT JOIN gsk_results r ON r.exam_id = ? AND r.user_id = u.id
                                WHERE u.id IN (SELECT DISTINCT user_id FROM gsk_answers WHERE exam_id = ?)");
-        $stmt->execute([$exam_id]);
+        $stmt->execute([$exam_id, $exam_id]);
         $students = $stmt->fetchAll();
         
         // 获取每个学生的答题详情
@@ -314,7 +310,7 @@ if ($exam_id) {
             $stmt->execute([$stu['id'], $exam_id]);
             $stu['answers'] = $stmt->fetchAll();
             
-            // 如果该学生还没有结果记录，补一个默认的
+            // 如果该学生还没有结果记录，补默认值
             if (!isset($stu['total_score']) && !isset($stu['result_status'])) {
                 $stu['total_score'] = null;
                 $stu['result_status'] = 'pending';
@@ -333,7 +329,7 @@ $msg = $_GET['msg'] ?? '';
     <title>LunaticCho 管理后台</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* ===== 样式与之前相同，此处略 ===== */
+        /* ===== 样式与之前相同 ===== */
         * { margin:0; padding:0; box-sizing:border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
