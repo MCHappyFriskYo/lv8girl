@@ -1,7 +1,7 @@
 <?php
 /**
- * LunaticCho 前台 - 完整修复版
- * 包含：注册登录、头像、周常考试、排行榜、博物志翻页书
+ * LunaticCho 前台 - 主页集成周常进度
+ * 登录后在主页直接显示答题情况
  */
 
 error_reporting(E_ALL);
@@ -234,6 +234,40 @@ if (isset($_REQUEST['action'])) {
             } catch (Exception $e) {
                 echo json_encode(['code' => 50000, 'message' => '数据库错误：' . $e->getMessage()]);
             }
+            exit;
+        }
+
+        // ---------- 获取用户在各考试中的答题状态（主页用） ----------
+        if ($action === 'get_user_exam_status') {
+            if (!isset($_SESSION['user_id'])) {
+                echo json_encode(['code' => 40100, 'message' => '未登录']);
+                exit;
+            }
+            $user_id = $_SESSION['user_id'];
+            $stmt = $pdo->query("SELECT * FROM gsk_exams WHERE status = 'published' ORDER BY published_at DESC");
+            $exams = $stmt->fetchAll();
+            $result = [];
+            foreach ($exams as $exam) {
+                $stmt2 = $pdo->prepare("SELECT COUNT(*) as qcount FROM gsk_questions WHERE exam_id = ?");
+                $stmt2->execute([$exam['id']]);
+                $qcount = $stmt2->fetch()['qcount'];
+                
+                $stmt2 = $pdo->prepare("SELECT COUNT(*) as acount FROM gsk_answers WHERE exam_id = ? AND user_id = ?");
+                $stmt2->execute([$exam['id'], $user_id]);
+                $acount = $stmt2->fetch()['acount'];
+                
+                $stmt2 = $pdo->prepare("SELECT total_score, status FROM gsk_results WHERE exam_id = ? AND user_id = ?");
+                $stmt2->execute([$exam['id'], $user_id]);
+                $result_data = $stmt2->fetch();
+                
+                $exam['question_count'] = $qcount;
+                $exam['answered_count'] = $acount;
+                $exam['score'] = $result_data ? $result_data['total_score'] : null;
+                $exam['graded'] = $result_data && $result_data['status'] === 'graded';
+                $exam['has_answered'] = $acount > 0;
+                $result[] = $exam;
+            }
+            echo json_encode(['code' => 0, 'data' => $result]);
             exit;
         }
 
@@ -500,6 +534,44 @@ header('Content-Type: text/html; charset=utf-8');
     .feature-item i { font-size: 2rem; color: #0b3b4c; margin-bottom: 0.5rem; display: block; }
     .feature-item h4 { font-weight: 600; color: #0b3b4c; }
     .feature-item p { color: #64748b; font-size: 0.9rem; margin-top: 0.2rem; }
+
+    /* ===== 主页 - 周常进度卡片 ===== */
+    .progress-card {
+      background: #f8fafc;
+      border-radius: 10px;
+      padding: 1.2rem 1.5rem;
+      margin-bottom: 0.8rem;
+      border-left: 4px solid #d4a373;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.15s;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .progress-card:hover { background: #f1f5f9; transform: translateX(4px); }
+    .progress-card .info { flex: 1; }
+    .progress-card .title { font-weight: 600; color: #0b3b4c; font-size: 1rem; }
+    .progress-card .meta { font-size: 0.85rem; color: #64748b; }
+    .progress-card .status-badge {
+      display: inline-block;
+      padding: 0.15rem 0.8rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .status-not-started { background: #e2e8f0; color: #475569; }
+    .status-pending { background: #fef3c7; color: #b45309; }
+    .status-graded { background: #d1fae5; color: #0b6b4c; }
+    .no-exams-msg {
+      color: #94a3b8;
+      text-align: center;
+      padding: 1.5rem 0;
+    }
+    .no-exams-msg i { font-size: 2.5rem; display: block; margin-bottom: 0.5rem; color: #d4a373; }
+
     .exam-empty {
       text-align: center;
       padding: 3rem 0;
@@ -935,6 +1007,7 @@ header('Content-Type: text/html; charset=utf-8');
       .features-grid { grid-template-columns: 1fr 1fr; }
       .hero-logo { width: 80px; height: 80px; line-height: 80px; font-size: 2.2rem; }
       .book-pages { height: 350px; }
+      .progress-card { flex-direction: column; align-items: flex-start; }
     }
     @media (max-width: 640px) {
       .hamburger { display: flex; }
@@ -986,7 +1059,7 @@ header('Content-Type: text/html; charset=utf-8');
   </nav>
 
   <div class="container">
-    <!-- 主页 -->
+    <!-- ===== 主页 ===== -->
     <section class="page active" id="page-home">
       <div class="hero">
         <div class="hero-logo"><i class="fas fa-flask"></i></div>
@@ -997,6 +1070,15 @@ header('Content-Type: text/html; charset=utf-8');
         <div class="card-title"><i class="fas fa-flag"></i>平台简介</div>
         <p style="color:#334155;">LunaticCho 为化学联考提供从试卷发布、答题卡扫描上传到成绩统计的全流程支持。考生通过邮箱注册，可随时上传答题卡，教师端统一收集，高效便捷。</p>
       </div>
+
+      <!-- ===== 我的周常进度（主页集成） ===== -->
+      <div class="card" id="homeProgressCard">
+        <div class="card-title"><i class="fas fa-calendar-check"></i>我的周常进度</div>
+        <div id="homeProgressContent">
+          <p style="color:#94a3b8; text-align:center; padding:0.5rem 0;">加载中...</p>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-title"><i class="fas fa-star"></i>核心功能</div>
         <div class="features-grid">
@@ -1158,6 +1240,9 @@ header('Content-Type: text/html; charset=utf-8');
         async getExams() {
             return this._get('get_exams');
         },
+        async getUserExamStatus() {
+            return this._get('get_user_exam_status');
+        },
         async getExamQuestions(exam_id) {
             return this._get('get_exam_questions', { exam_id });
         },
@@ -1294,6 +1379,8 @@ header('Content-Type: text/html; charset=utf-8');
           $('#registerSuccess').style.display = 'none';
           adminBtn.style.display = 'none';
         }
+        // 渲染主页进度和周常列表
+        renderHomeProgress();
         renderWeekly();
       }
 
@@ -1428,6 +1515,61 @@ header('Content-Type: text/html; charset=utf-8');
         this.value = '';
       });
 
+      // ========== 主页 - 我的周常进度 ==========
+      async function renderHomeProgress() {
+        const container = $('#homeProgressContent');
+        if (!currentUser) {
+          container.innerHTML = `
+            <div class="no-exams-msg">
+              <i class="fas fa-sign-in-alt"></i>
+              <p>请 <a href="#" onclick="setActivePage('account')" style="color:#2563eb;text-decoration:underline;">登录</a> 查看您的周常进度</p>
+            </div>
+          `;
+          return;
+        }
+        try {
+          const res = await API.getUserExamStatus();
+          if (res.code === 0 && res.data && res.data.length > 0) {
+            let html = '';
+            res.data.forEach(exam => {
+              let statusText, statusClass;
+              if (!exam.has_answered) {
+                statusText = '未作答';
+                statusClass = 'status-not-started';
+              } else if (exam.graded) {
+                statusText = '✅ 已批改 ' + exam.score + ' 分';
+                statusClass = 'status-graded';
+              } else {
+                statusText = '⏳ 待批改 (' + exam.answered_count + '/' + exam.question_count + ')';
+                statusClass = 'status-pending';
+              }
+              html += `
+                <div class="progress-card" onclick="window.LunaticCho.startExam(${exam.id})">
+                  <div class="info">
+                    <div class="title">📝 ${exam.title}</div>
+                    <div class="meta">${exam.question_count} 题 · 总分 ${exam.total_score}</div>
+                  </div>
+                  <span class="status-badge ${statusClass}">${statusText}</span>
+                </div>
+              `;
+            });
+            container.innerHTML = html;
+          } else if (res.code !== 0) {
+            container.innerHTML = `<p style="color:#b91c1c;text-align:center;">❌ ${res.message || '加载失败'}</p>`;
+          } else {
+            container.innerHTML = `
+              <div class="no-exams-msg">
+                <i class="fas fa-calendar-plus"></i>
+                <p>暂无已发布的考试，请关注后续更新。</p>
+              </div>
+            `;
+          }
+        } catch (e) {
+          container.innerHTML = `<p style="color:#b91c1c;text-align:center;">❌ 加载失败，请稍后重试</p>`;
+          console.error('主页进度加载错误:', e);
+        }
+      }
+
       // ========== 周常 - 考试列表 ==========
       async function renderWeekly() {
         const container = $('#weeklyContainer');
@@ -1458,7 +1600,7 @@ header('Content-Type: text/html; charset=utf-8');
             container.innerHTML = '<p style="color:#94a3b8; text-align:center; padding:1rem 0;">暂无已发布的考试，请关注后续更新。</p>';
           }
         } catch (e) {
-          container.innerHTML = '<p style="color:#b91c1c; text-align:center; padding:1rem 0;">❌ 加载失败，请稍后重试。错误：' + (e.message || '') + '</p>';
+          container.innerHTML = '<p style="color:#b91c1c; text-align:center; padding:1rem 0;">❌ 加载失败，请稍后重试。</p>';
           console.error('周常加载错误:', e);
         }
       }
@@ -1488,6 +1630,8 @@ header('Content-Type: text/html; charset=utf-8');
 
         backToExams: function() {
           renderWeekly();
+          // 刷新主页进度
+          renderHomeProgress();
         },
 
         viewRanking: async function(examId) {
@@ -1626,6 +1770,8 @@ header('Content-Type: text/html; charset=utf-8');
                 </div>
               `;
               document.querySelector('.btn-submit-exam').disabled = true;
+              // 刷新主页进度
+              renderHomeProgress();
             } else {
               showToast(res.message || '提交失败', 'error');
             }
@@ -1676,7 +1822,7 @@ header('Content-Type: text/html; charset=utf-8');
         if (!e.target.closest('.navbar')) navList.classList.remove('open');
       });
 
-      console.log('LunaticCho 前台启动完成');
+      console.log('LunaticCho 前台启动完成（主页集成周常进度）');
     })();
   </script>
 </body>
