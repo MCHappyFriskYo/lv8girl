@@ -1,6 +1,6 @@
 <?php
 /**
- * LunaticCho 前台 - 最终版（含刷新按钮）
+ * LunaticChO 前台 - 最终版（含刷新按钮）
  */
 
 error_reporting(E_ALL);
@@ -364,7 +364,7 @@ header('Content-Type: text/html; charset=utf-8');
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LunaticCho · 联考平台</title>
+  <title>LunaticChO · 联考平台</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <style>
     /* ===== 全局样式 ===== */
@@ -1061,7 +1061,7 @@ header('Content-Type: text/html; charset=utf-8');
 <body>
   <!-- 导航 -->
   <nav class="navbar">
-    <div class="brand"><i class="fas fa-flask"></i> LunaticCho</div>
+    <div class="brand"><i class="fas fa-flask"></i> LunaticChO</div>
     <button class="hamburger" id="hamburger"><span></span><span></span><span></span></button>
     <ul class="nav-links" id="navLinks">
       <li><a href="#" class="active" data-page="home">主页</a></li>
@@ -1077,12 +1077,12 @@ header('Content-Type: text/html; charset=utf-8');
     <section class="page active" id="page-home">
       <div class="hero">
         <div class="hero-logo"><i class="fas fa-flask"></i></div>
-        <h1><i class="fas fa-flask"></i>LunaticCho 联考平台</h1>
+        <h1><i class="fas fa-flask"></i>LunaticChO 联考平台</h1>
         <p>化学学科联考 · 答题卡收集 · 数据驱动教学</p>
       </div>
       <div class="card" style="border-top: 4px solid #d4a373;">
         <div class="card-title"><i class="fas fa-flag"></i>平台简介</div>
-        <p style="color:#334155;">LunaticCho 为化学联考提供从试卷发布、答题卡扫描上传到成绩统计的全流程支持。考生通过邮箱注册，可随时上传答题卡，教师端统一收集，高效便捷。</p>
+        <p style="color:#334155;">LunaticChO 为化学联考提供从试卷发布、答题卡扫描上传到成绩统计的全流程支持。考生通过邮箱注册，可随时上传答题卡，教师端统一收集，高效便捷。</p>
       </div>
       <div class="card" id="homeProgressCard">
         <div class="card-title">
@@ -1199,7 +1199,7 @@ header('Content-Type: text/html; charset=utf-8');
     </section>
   </div>
 
-  <footer class="footer" style="background:#0b3b4c;color:#94a3b8;text-align:center;padding:1.2rem 1rem;font-size:0.85rem;border-top:2px solid #d4a373;margin-top:1.5rem;"><p>© 2026 <span style="color:#d4a373;">LunaticCho</span> · 化学联考平台</p></footer>
+  <footer class="footer" style="background:#0b3b4c;color:#94a3b8;text-align:center;padding:1.2rem 1rem;font-size:0.85rem;border-top:2px solid #d4a373;margin-top:1.5rem;"><p>© 2026 <span style="color:#d4a373;">LunaticChO</span> · 化学联考平台</p></footer>
   <div class="toast" id="toast"></div>
 
   <script>
@@ -1550,7 +1550,7 @@ header('Content-Type: text/html; charset=utf-8');
                 statusClass = 'status-pending';
               }
               html += `
-                <div class="progress-card" onclick="window.LunaticCho.handleExamClick(${exam.id})">
+                <div class="progress-card" onclick="window.LunaticChO.handleExamClick(${exam.id})">
                   <div class="info">
                     <div class="title">📝 ${exam.title}</div>
                     <div class="meta">${exam.question_count} 题 · 总分 ${exam.total_score}</div>
@@ -1621,7 +1621,7 @@ header('Content-Type: text/html; charset=utf-8');
           let cardsHtml = '<div class="exam-cards">';
           exams.forEach(exam => {
             cardsHtml += `
-              <div class="exam-card-item" onclick="window.LunaticCho.handleExamClick(${exam.id})">
+              <div class="exam-card-item" onclick="window.LunaticChO.handleExamClick(${exam.id})">
                 <div class="title">📝 ${exam.title}</div>
                 <div class="meta">
                   <span>👩‍🏫 ${exam.teacher}</span>
@@ -1645,7 +1645,7 @@ header('Content-Type: text/html; charset=utf-8');
       }
 
       // ========== 处理考试点击 ==========
-      window.LunaticCho = {
+      window.LunaticChO = {
         handleExamClick: async function(examId) {
           if (!currentUser) {
             showToast('请先登录', 'error');
@@ -1698,7 +1698,7 @@ header('Content-Type: text/html; charset=utf-8');
                 <h2>${exam.title || '考试'}</h2>
                 <p>${exam.description || ''}</p>
                 <p style="font-size:0.85rem; color:#94a3b8;">共 ${questions.length} 题，总分 ${questions.reduce((s, q) => s + parseInt(q.score || 0), 0)} 分</p>
-                <button onclick="window.LunaticCho.backToExams()" style="background:none; border:none; color:#2563eb; cursor:pointer; font-size:0.9rem;">← 返回考试列表</button>
+                <button onclick="window.LunaticChO.backToExams()" style="background:none; border:none; color:#2563eb; cursor:pointer; font-size:0.9rem;">← 返回考试列表</button>
               </div>
               <form id="examForm">
           `;
@@ -1767,7 +1767,7 @@ header('Content-Type: text/html; charset=utf-8');
                     <i class="fas fa-check-circle" style="font-size:2rem; display:block; margin-bottom:0.5rem;"></i>
                     ${res.message}
                     <br><br>
-                    <button onclick="window.LunaticCho.viewRanking(${currentExamId})" class="btn" style="background:#0b3b4c; color:#fff; border:none; padding:0.5rem 1.5rem; border-radius:20px; cursor:pointer;">
+                    <button onclick="window.LunaticChO.viewRanking(${currentExamId})" class="btn" style="background:#0b3b4c; color:#fff; border:none; padding:0.5rem 1.5rem; border-radius:20px; cursor:pointer;">
                       查看排行榜
                     </button>
                   </div>
@@ -1798,7 +1798,7 @@ header('Content-Type: text/html; charset=utf-8');
                 <div class="ranking-container">
                   <div class="exam-header">
                     <h2>🏆 ${data.exam ? data.exam.title : '考试'} - 排行榜</h2>
-                    <button onclick="window.LunaticCho.backToExams()" style="background:none; border:none; color:#2563eb; cursor:pointer; font-size:0.9rem;">← 返回考试列表</button>
+                    <button onclick="window.LunaticChO.backToExams()" style="background:none; border:none; color:#2563eb; cursor:pointer; font-size:0.9rem;">← 返回考试列表</button>
                   </div>
               `;
               if (data.myScore) {
@@ -1878,7 +1878,7 @@ header('Content-Type: text/html; charset=utf-8');
         if (!e.target.closest('.navbar')) navList.classList.remove('open');
       });
 
-      console.log('LunaticCho 前台启动完成（含刷新按钮）');
+      console.log('LunaticChO 前台启动完成（含刷新按钮）');
     })();
   </script>
 </body>
