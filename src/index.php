@@ -1,6 +1,6 @@
 <?php
 /**
- * LunaticChO 前台 - 最终版（含刷新按钮）
+ * LunaticChO 前台 - 答题回顾 + 排行榜
  */
 
 error_reporting(E_ALL);
@@ -284,6 +284,39 @@ if (isset($_REQUEST['action'])) {
             $stmt2->execute([$exam_id]);
             $exam = $stmt2->fetch();
             echo json_encode(['code' => 0, 'data' => ['exam' => $exam, 'questions' => $questions]]);
+            exit;
+        }
+
+        // ---------- 获取用户答案（用于答题回顾） ----------
+        if ($action === 'get_user_answers') {
+            if (!isset($_SESSION['user_id'])) {
+                echo json_encode(['code' => 40100, 'message' => '未登录']);
+                exit;
+            }
+            $exam_id = intval($_GET['exam_id'] ?? 0);
+            if (!$exam_id) {
+                echo json_encode(['code' => 40001, 'message' => '缺少考试ID']);
+                exit;
+            }
+            $user_id = $_SESSION['user_id'];
+            // 获取所有题目及用户答案
+            $stmt = $pdo->prepare("SELECT q.id as question_id, q.type, q.content, q.options, q.answer as correct_answer, q.score as max_score,
+                                          a.id as answer_id, a.answer as user_answer, a.score, a.status
+                                   FROM gsk_questions q
+                                   LEFT JOIN gsk_answers a ON a.question_id = q.id AND a.user_id = ?
+                                   WHERE q.exam_id = ?
+                                   ORDER BY q.sort_order, q.id");
+            $stmt->execute([$user_id, $exam_id]);
+            $answers = $stmt->fetchAll();
+            // 获取考试信息
+            $stmt2 = $pdo->prepare("SELECT title FROM gsk_exams WHERE id = ?");
+            $stmt2->execute([$exam_id]);
+            $exam = $stmt2->fetch();
+            // 获取总分
+            $stmt3 = $pdo->prepare("SELECT total_score, status FROM gsk_results WHERE exam_id = ? AND user_id = ?");
+            $stmt3->execute([$exam_id, $user_id]);
+            $result = $stmt3->fetch();
+            echo json_encode(['code' => 0, 'data' => ['exam' => $exam, 'questions' => $answers, 'result' => $result]]);
             exit;
         }
 
@@ -833,6 +866,24 @@ header('Content-Type: text/html; charset=utf-8');
     }
     .my-score .big-score { font-size: 2rem; font-weight: 700; color: #0b3b4c; }
 
+    /* 答题回顾专用 */
+    .answer-review .user-answer {
+      background: #f1f5f9;
+      padding: 0.3rem 0.8rem;
+      border-radius: 4px;
+      display: inline-block;
+      margin: 0.2rem 0;
+    }
+    .answer-review .score-badge {
+      font-weight: 700;
+      padding: 0.1rem 0.8rem;
+      border-radius: 20px;
+      font-size: 0.85rem;
+    }
+    .answer-review .score-badge.correct { background: #d1fae5; color: #0b6b4c; }
+    .answer-review .score-badge.wrong { background: #fce4ec; color: #b91c1c; }
+    .answer-review .score-badge.pending { background: #fef3c7; color: #b45309; }
+
     /* 账号样式 */
     .auth-tabs {
       display: flex;
@@ -1256,6 +1307,9 @@ header('Content-Type: text/html; charset=utf-8');
         async getExamQuestions(exam_id) {
             return this._get('get_exam_questions', { exam_id });
         },
+        async getUserAnswers(exam_id) {
+            return this._get('get_user_answers', { exam_id });
+        },
         async submitAnswers(exam_id, answers) {
             return this._request('submit_answers', { exam_id, answers });
         },
@@ -1644,8 +1698,9 @@ header('Content-Type: text/html; charset=utf-8');
         }
       }
 
-      // ========== 处理考试点击 ==========
+      // ========== 核心交互 ==========
       window.LunaticChO = {
+        // 处理考试卡片点击：已作答 → 答题回顾，未作答 → 进入答题
         handleExamClick: async function(examId) {
           if (!currentUser) {
             showToast('请先登录', 'error');
@@ -1657,14 +1712,17 @@ header('Content-Type: text/html; charset=utf-8');
             if (statusRes.code === 0 && statusRes.data) {
               const examStatus = statusRes.data.find(e => e.id === examId);
               if (examStatus && examStatus.has_answered) {
-                this.viewRanking(examId);
+                // 已作答 → 答题回顾
+                this.viewAnswer(examId);
                 return;
               }
             }
           } catch (e) {}
+          // 未作答 → 开始答题
           this.startExam(examId);
         },
 
+        // 开始答题（未作答）
         startExam: async function(examId) {
           if (!currentUser) {
             showToast('请先登录后再答题', 'error');
@@ -1686,6 +1744,7 @@ header('Content-Type: text/html; charset=utf-8');
           }
         },
 
+        // 渲染答题界面
         renderExam: function(exam, questions) {
           const container = $('#weeklyContainer');
           if (!questions || questions.length === 0) {
@@ -1767,6 +1826,9 @@ header('Content-Type: text/html; charset=utf-8');
                     <i class="fas fa-check-circle" style="font-size:2rem; display:block; margin-bottom:0.5rem;"></i>
                     ${res.message}
                     <br><br>
+                    <button onclick="window.LunaticChO.viewAnswer(${currentExamId})" class="btn" style="background:#0b3b4c; color:#fff; border:none; padding:0.5rem 1.5rem; border-radius:20px; cursor:pointer;">
+                      查看我的答卷
+                    </button>
                     <button onclick="window.LunaticChO.viewRanking(${currentExamId})" class="btn" style="background:#0b3b4c; color:#fff; border:none; padding:0.5rem 1.5rem; border-radius:20px; cursor:pointer;">
                       查看排行榜
                     </button>
@@ -1783,11 +1845,92 @@ header('Content-Type: text/html; charset=utf-8');
           });
         },
 
-        backToExams: function() {
-          renderWeekly();
-          renderHomeProgress();
+        // 答题回顾（已作答）
+        viewAnswer: async function(examId) {
+          const container = $('#weeklyContainer');
+          try {
+            const res = await API.getUserAnswers(examId);
+            if (res.code === 0) {
+              const data = res.data;
+              const exam = data.exam || { title: '考试' };
+              const questions = data.questions || [];
+              const result = data.result || null;
+              const totalScore = result ? result.total_score : null;
+              const graded = result && result.status === 'graded';
+
+              let html = `
+                <div class="exam-container answer-review">
+                  <div class="exam-header">
+                    <h2>📖 ${exam.title} - 答题回顾</h2>
+                    <p style="font-size:0.9rem; color:#64748b;">
+                      ${graded ? '✅ 已批改，总分：' + totalScore + ' 分' : '⏳ 待批改'}
+                    </p>
+                    <button onclick="window.LunaticChO.backToExams()" style="background:none; border:none; color:#2563eb; cursor:pointer; font-size:0.9rem;">← 返回考试列表</button>
+                    <button onclick="window.LunaticChO.viewRanking(${examId})" style="background:#0b3b4c; color:#fff; border:none; padding:0.3rem 1.2rem; border-radius:20px; cursor:pointer; font-size:0.9rem; margin-left:0.5rem;">
+                      查看排行榜
+                    </button>
+                  </div>
+              `;
+
+              if (questions.length === 0) {
+                html += `<p style="color:#94a3b8; text-align:center; padding:1rem 0;">暂无题目数据</p>`;
+              } else {
+                questions.forEach((q, idx) => {
+                  const qNum = idx + 1;
+                  const typeMap = { 'single': '单选题', 'multiple': '多选题', 'fill': '填空题', 'essay': '解答题' };
+                  const userAns = q.user_answer || '未作答';
+                  const score = q.score;
+                  const maxScore = q.max_score;
+                  let scoreBadge = '';
+                  if (graded && score !== null) {
+                    const isCorrect = score == maxScore;
+                    scoreBadge = `<span class="score-badge ${isCorrect ? 'correct' : 'wrong'}">${score} / ${maxScore} 分</span>`;
+                  } else if (graded && score === null) {
+                    scoreBadge = `<span class="score-badge pending">待批改</span>`;
+                  } else {
+                    scoreBadge = `<span class="score-badge pending">待批改</span>`;
+                  }
+
+                  // 展示选项（如果是选择题）
+                  let optionsDisplay = '';
+                  if (q.type === 'single' || q.type === 'multiple') {
+                    const opts = q.options ? JSON.parse(q.options) : [];
+                    optionsDisplay = opts.map((opt, oi) => {
+                      const letter = String.fromCharCode(65 + oi);
+                      const isSelected = userAns.split(',').map(s => s.trim()).includes(letter);
+                      return `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.2rem 0; ${isSelected ? 'background:#dbeafe;border-radius:4px;padding-left:0.5rem;' : ''}">
+                        <span>${letter}. ${opt}</span>
+                        ${isSelected ? '<span style="font-size:0.8rem;color:#2563eb;font-weight:600;"> ← 你的答案</span>' : ''}
+                      </div>`;
+                    }).join('');
+                  } else if (q.type === 'fill' || q.type === 'essay') {
+                    optionsDisplay = `<div><strong>你的答案：</strong><span class="user-answer">${userAns}</span></div>`;
+                  }
+
+                  html += `
+                    <div class="question-item">
+                      <div class="q-header">
+                        <span>第 ${qNum} 题 <span class="q-type">${typeMap[q.type] || q.type}</span></span>
+                        <span>${scoreBadge}</span>
+                      </div>
+                      <div class="q-content">${q.content || ''}</div>
+                      <div class="q-options">${optionsDisplay}</div>
+                    </div>
+                  `;
+                });
+              }
+
+              html += `</div>`;
+              container.innerHTML = html;
+            } else {
+              showToast(res.message || '加载答卷失败', 'error');
+            }
+          } catch (e) {
+            showToast('加载答卷失败: ' + (e.message || ''), 'error');
+          }
         },
 
+        // 排行榜
         viewRanking: async function(examId) {
           const container = $('#weeklyContainer');
           try {
@@ -1799,6 +1942,9 @@ header('Content-Type: text/html; charset=utf-8');
                   <div class="exam-header">
                     <h2>🏆 ${data.exam ? data.exam.title : '考试'} - 排行榜</h2>
                     <button onclick="window.LunaticChO.backToExams()" style="background:none; border:none; color:#2563eb; cursor:pointer; font-size:0.9rem;">← 返回考试列表</button>
+                    <button onclick="window.LunaticChO.viewAnswer(${examId})" style="background:#0b3b4c; color:#fff; border:none; padding:0.3rem 1.2rem; border-radius:20px; cursor:pointer; font-size:0.9rem; margin-left:0.5rem;">
+                      查看我的答卷
+                    </button>
                   </div>
               `;
               if (data.myScore) {
@@ -1834,6 +1980,12 @@ header('Content-Type: text/html; charset=utf-8');
           } catch (e) {
             showToast('加载排行榜失败', 'error');
           }
+        },
+
+        // 返回考试列表
+        backToExams: function() {
+          renderWeekly();
+          renderHomeProgress();
         }
       };
 
@@ -1878,7 +2030,7 @@ header('Content-Type: text/html; charset=utf-8');
         if (!e.target.closest('.navbar')) navList.classList.remove('open');
       });
 
-      console.log('LunaticChO 前台启动完成（含刷新按钮）');
+      console.log('LunaticChO 前台启动完成（答题回顾）');
     })();
   </script>
 </body>
