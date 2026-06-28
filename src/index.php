@@ -1,6 +1,7 @@
 <?php
 /**
- * LunaticCho 前台 - 周常显示最近考试排行榜 + 防重复答题
+ * LunaticCho 前台 - 完整版
+ * 支持题目图片、排行榜、防重复答题、头像上传
  */
 
 error_reporting(E_ALL);
@@ -367,7 +368,6 @@ header('Content-Type: text/html; charset=utf-8');
   <title>LunaticCho · 联考平台</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <style>
-    /* ===== 全局样式 ===== */
     * { margin:0; padding:0; box-sizing:border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -668,15 +668,6 @@ header('Content-Type: text/html; charset=utf-8');
       background: #d1fae5;
       color: #0b6b4c;
     }
-    .exam-card-item .answered-badge {
-      display: inline-block;
-      padding: 0.1rem 0.6rem;
-      border-radius: 20px;
-      font-size: 0.7rem;
-      font-weight: 600;
-      background: #fef3c7;
-      color: #b45309;
-    }
 
     /* 排行榜区域（周常页面顶部） */
     .ranking-section {
@@ -748,7 +739,16 @@ header('Content-Type: text/html; charset=utf-8');
       background: #dbeafe;
       color: #1d4ed8;
     }
-    .question-item .q-content { margin-bottom: 0.8rem; color: #1e293b; }
+    .question-item .q-content { 
+      margin-bottom: 0.8rem; 
+      color: #1e293b;
+    }
+    .question-item .q-content img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 6px;
+      margin: 0.5rem 0;
+    }
     .question-item .q-options label {
       display: flex;
       align-items: center;
@@ -840,7 +840,7 @@ header('Content-Type: text/html; charset=utf-8');
     }
     .my-score .big-score { font-size: 2rem; font-weight: 700; color: #0b3b4c; }
 
-    /* 账号样式（略） */
+    /* 账号样式 */
     .auth-tabs {
       display: flex;
       border-bottom: 2px solid #e9edf2;
@@ -1080,7 +1080,7 @@ header('Content-Type: text/html; charset=utf-8');
   </nav>
 
   <div class="container">
-    <!-- ===== 主页 ===== -->
+    <!-- 主页 -->
     <section class="page active" id="page-home">
       <div class="hero">
         <div class="hero-logo"><i class="fas fa-flask"></i></div>
@@ -1140,7 +1140,7 @@ header('Content-Type: text/html; charset=utf-8');
       </div>
     </section>
 
-    <!-- ===== 周常 ===== -->
+    <!-- 周常 -->
     <section class="page" id="page-weekly">
       <div class="card">
         <div class="card-title"><i class="fas fa-calendar-week"></i>周常 · 化学挑战</div>
@@ -1577,16 +1577,14 @@ header('Content-Type: text/html; charset=utf-8');
       async function renderWeekly() {
         const container = $('#weeklyContainer');
         try {
-          // 获取考试列表
           const examsRes = await API.getExams();
           if (examsRes.code !== 0 || !examsRes.data || examsRes.data.length === 0) {
             container.innerHTML = '<p style="color:#94a3b8; text-align:center; padding:1rem 0;">暂无已发布的考试</p>';
             return;
           }
           const exams = examsRes.data;
-          const latestExam = exams[0]; // 已按 published_at DESC 排序
+          const latestExam = exams[0];
 
-          // 获取该考试的排行榜
           let rankingHtml = '';
           try {
             const rankRes = await API.getRanking(latestExam.id);
@@ -1622,10 +1620,8 @@ header('Content-Type: text/html; charset=utf-8');
             rankingHtml = `<div class="ranking-section"><p style="color:#94a3b8;">排行榜加载失败</p></div>`;
           }
 
-          // 构建考试卡片列表
           let cardsHtml = '<div class="exam-cards">';
           exams.forEach(exam => {
-            // 检查用户是否已作答（需要通过状态接口获取，但这里先使用通用方式，后续通过点击时的检查）
             cardsHtml += `
               <div class="exam-card-item" onclick="window.LunaticCho.handleExamClick(${exam.id})">
                 <div class="title">📝 ${exam.title}</div>
@@ -1658,21 +1654,16 @@ header('Content-Type: text/html; charset=utf-8');
             setActivePage('account');
             return;
           }
-          // 检查用户是否已作答
           try {
             const statusRes = await API.getUserExamStatus();
             if (statusRes.code === 0 && statusRes.data) {
               const examStatus = statusRes.data.find(e => e.id === examId);
               if (examStatus && examStatus.has_answered) {
-                // 已作答，直接查看排行榜
                 this.viewRanking(examId);
                 return;
               }
             }
-          } catch (e) {
-            // 查询失败，允许进入答题（保守策略）
-          }
-          // 未作答，进入答题
+          } catch (e) {}
           this.startExam(examId);
         },
 
@@ -1889,7 +1880,7 @@ header('Content-Type: text/html; charset=utf-8');
         if (!e.target.closest('.navbar')) navList.classList.remove('open');
       });
 
-      console.log('LunaticCho 前台启动完成（周常排行榜 + 防重复答题）');
+      console.log('LunaticCho 前台启动完成（支持题目图片）');
     })();
   </script>
 </body>
