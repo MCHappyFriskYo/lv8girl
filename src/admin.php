@@ -1,6 +1,6 @@
 <?php
 /**
- * LunaticCho 管理后台 - 出题+阅卷
+ * LunaticCho 管理后台 - 支持题目图片上传
  */
 
 session_start();
@@ -12,6 +12,11 @@ if (!isset($_SESSION['user_id'])) {
 
 if (!in_array($_SESSION['role'], ['ADMIN', 'TEACHER'])) {
     die('您没有权限访问管理后台。');
+}
+
+// 创建上传目录
+if (!is_dir('uploads')) {
+    mkdir('uploads', 0755, true);
 }
 
 function gsk_config() {
@@ -30,9 +35,36 @@ function gsk_config() {
 }
 $pdo = gsk_config();
 
-// ========== 处理 POST 请求 ==========
+// 处理 POST 请求
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
+
+    // ---- 图片上传 ----
+    if ($action === 'upload_image') {
+        $file = $_FILES['image'] ?? null;
+        if (!$file || $file['error'] !== UPLOAD_ERR_OK) {
+            echo json_encode(['code' => 40001, 'message' => '文件上传失败']);
+            exit;
+        }
+        $allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+        if (!in_array($file['type'], $allowed)) {
+            echo json_encode(['code' => 40001, 'message' => '仅支持 jpg/png/gif/webp 格式']);
+            exit;
+        }
+        if ($file['size'] > 2 * 1024 * 1024) {
+            echo json_encode(['code' => 40001, 'message' => '图片不能超过 2MB']);
+            exit;
+        }
+        $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
+        $filename = uniqid() . '.' . $ext;
+        $path = 'uploads/' . $filename;
+        if (move_uploaded_file($file['tmp_name'], $path)) {
+            echo json_encode(['code' => 0, 'data' => ['url' => $path]]);
+        } else {
+            echo json_encode(['code' => 50000, 'message' => '文件保存失败']);
+        }
+        exit;
+    }
 
     // ---- 创建考试 ----
     if ($action === 'create_exam') {
@@ -53,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'add_question') {
         $exam_id = $_POST['exam_id'];
         $type = $_POST['type'];
-        $content = $_POST['content'];
+        $content = $_POST['content']; // 可能包含 HTML 图片标签
         $score = intval($_POST['score']);
         $sort_order = intval($_POST['sort_order'] ?? 0);
         
@@ -85,7 +117,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $sort_order = intval($_POST['sort_order'] ?? 0);
         $exam_id = $_POST['exam_id'];
         
-        // 获取原题目类型
         $stmt = $pdo->prepare("SELECT type FROM gsk_questions WHERE id = ?");
         $stmt->execute([$qid]);
         $q = $stmt->fetch();
@@ -153,21 +184,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         $pdo->beginTransaction();
         try {
-            // 更新答题记录
             $stmt = $pdo->prepare("UPDATE gsk_answers SET score = ?, status = 'graded' WHERE id = ?");
             $stmt->execute([$score, $answer_id]);
             
-            // 重新计算该学生该考试的总分
             $stmt = $pdo->prepare("SELECT SUM(score) as total FROM gsk_answers WHERE exam_id = ? AND user_id = ? AND status = 'graded'");
             $stmt->execute([$exam_id, $user_id]);
             $total = $stmt->fetch();
             $totalScore = $total['total'] ?? 0;
             
-            // 检查是否所有题目都已批改
             $stmt = $pdo->prepare("SELECT COUNT(*) as pending FROM gsk_answers WHERE exam_id = ? AND user_id = ? AND status = 'pending'");
             $stmt->execute([$exam_id, $user_id]);
             $pending = $stmt->fetch();
-            
             $status = ($pending['pending'] == 0) ? 'graded' : 'pending';
             
             $stmt = $pdo->prepare("INSERT INTO gsk_results (exam_id, user_id, total_score, status) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE total_score = VALUES(total_score), status = VALUES(status), updated_at = CURRENT_TIMESTAMP");
@@ -186,7 +213,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ---- 自动批改客观题 ----
     if ($action === 'auto_grade') {
         $exam_id = $_POST['exam_id'];
-        // 获取所有客观题（单选、多选、填空）
         $stmt = $pdo->prepare("SELECT id, type, answer FROM gsk_questions WHERE exam_id = ? AND type IN ('single', 'multiple', 'fill')");
         $stmt->execute([$exam_id]);
         $questions = $stmt->fetchAll();
@@ -194,7 +220,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->beginTransaction();
         try {
             foreach ($questions as $q) {
-                // 获取该题所有待批改的答案
                 $stmt2 = $pdo->prepare("SELECT id, user_id, answer FROM gsk_answers WHERE question_id = ? AND status = 'pending'");
                 $stmt2->execute([$q['id']]);
                 $answers = $stmt2->fetchAll();
@@ -204,7 +229,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($q['type'] === 'single') {
                         $isCorrect = trim($ans['answer']) === trim($q['answer']);
                     } elseif ($q['type'] === 'multiple') {
-                        // 多选题：答案排序后比较
                         $userAnswers = array_map('trim', explode(',', $ans['answer']));
                         $correctAnswers = array_map('trim', explode(',', $q['answer']));
                         sort($userAnswers);
@@ -213,14 +237,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } elseif ($q['type'] === 'fill') {
                         $isCorrect = trim($ans['answer']) === trim($q['answer']);
                     }
-                    
                     $score = $isCorrect ? $q['score'] : 0;
                     $stmt3 = $pdo->prepare("UPDATE gsk_answers SET score = ?, status = 'graded' WHERE id = ?");
                     $stmt3->execute([$score, $ans['id']]);
                 }
             }
             
-            // 重新计算所有学生总分
             $stmt = $pdo->prepare("SELECT DISTINCT user_id FROM gsk_answers WHERE exam_id = ?");
             $stmt->execute([$exam_id]);
             $users = $stmt->fetchAll();
@@ -253,11 +275,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // ========== 获取数据 ==========
 $exam_id = $_GET['exam_id'] ?? 0;
 
-// 获取所有考试列表
 $stmt = $pdo->query("SELECT * FROM gsk_exams ORDER BY created_at DESC");
 $exams = $stmt->fetchAll();
 
-// 获取当前考试的题目
 $questions = [];
 $students = [];
 $exam = null;
@@ -271,7 +291,6 @@ if ($exam_id) {
         $stmt->execute([$exam_id]);
         $questions = $stmt->fetchAll();
         
-        // 获取已提交答案的学生列表
         $stmt = $pdo->prepare("SELECT DISTINCT u.id, u.username, u.email, r.total_score, r.status as result_status 
                                FROM gsk_answers a 
                                JOIN gsk_users u ON a.user_id = u.id 
@@ -281,7 +300,6 @@ if ($exam_id) {
         $stmt->execute([$exam_id]);
         $students = $stmt->fetchAll();
         
-        // 获取每个学生的答题详情
         foreach ($students as &$stu) {
             $stmt = $pdo->prepare("SELECT q.id, q.type, q.content, q.options, q.answer as correct_answer, q.score as max_score, 
                                    a.id as answer_id, a.answer as user_answer, a.score, a.status 
@@ -352,32 +370,12 @@ $msg = $_GET['msg'] ?? '';
             align-items: center;
             gap: 0.5rem;
         }
-        .section h3 {
-            color: #0b3b4c;
-            margin: 0.5rem 0;
-        }
-        .grid-2 {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1.5rem;
-        }
-        @media (max-width: 768px) {
-            .grid-2 { grid-template-columns: 1fr; }
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.9rem;
-        }
-        th, td {
-            padding: 0.5rem 0.8rem;
-            text-align: left;
-            border-bottom: 1px solid #e9edf2;
-        }
-        th {
-            background: #f8fafc;
-            font-weight: 600;
-        }
+        .section h3 { color: #0b3b4c; margin: 0.5rem 0; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+        @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th, td { padding: 0.5rem 0.8rem; text-align: left; border-bottom: 1px solid #e9edf2; }
+        th { background: #f8fafc; font-weight: 600; }
         .btn {
             background: #0b3b4c;
             color: #fff;
@@ -475,6 +473,18 @@ $msg = $_GET['msg'] ?? '';
         .exam-card .title { font-weight: 600; font-size: 1rem; }
         .exam-card .meta { font-size: 0.8rem; color: #64748b; }
         .exam-card .status { margin-top: 0.3rem; }
+        /* 上传按钮 */
+        .upload-img-btn {
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            padding: 0.2rem 0.8rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            margin-bottom: 0.3rem;
+        }
+        .upload-img-btn:hover { background: #1d4ed8; }
     </style>
 </head>
 <body>
@@ -567,7 +577,7 @@ $msg = $_GET['msg'] ?? '';
     <!-- ===== 添加题目 ===== -->
     <div class="section">
         <h2><i class="fas fa-plus-circle"></i> 添加题目</h2>
-        <details>
+        <details open>
             <summary style="cursor:pointer; font-weight:600; color:#0b3b4c;">➕ 添加新题目</summary>
             <form method="POST" style="margin-top:1rem;" id="questionForm">
                 <input type="hidden" name="action" value="add_question">
@@ -594,8 +604,10 @@ $msg = $_GET['msg'] ?? '';
                 </div>
                 
                 <div class="form-group">
-                    <label>题目内容</label>
-                    <textarea name="content" rows="3" required></textarea>
+                    <label>题目内容（支持HTML图片，点击下方按钮上传图片）</label>
+                    <textarea name="content" id="contentInput" rows="4" required></textarea>
+                    <button type="button" class="upload-img-btn" onclick="uploadImage()"><i class="fas fa-image"></i> 上传图片</button>
+                    <span style="font-size:0.8rem; color:#94a3b8;">点击后选择图片，自动插入 &lt;img&gt; 标签到内容末尾</span>
                 </div>
                 
                 <div class="form-group" id="optionsGroup">
@@ -634,7 +646,7 @@ $msg = $_GET['msg'] ?? '';
                 <tr>
                     <td><?= $q['id'] ?></td>
                     <td><span class="question-type type-<?= $q['type'] ?>"><?= ['single'=>'单选','multiple'=>'多选','fill'=>'填空','essay'=>'解答'][$q['type']] ?></span></td>
-                    <td><?= htmlspecialchars(mb_substr($q['content'], 0, 30)) ?>...</td>
+                    <td><?= htmlspecialchars(mb_substr(strip_tags($q['content']), 0, 30)) ?>...</td>
                     <td><?= $q['score'] ?></td>
                     <td class="action-btns">
                         <span class="toggle-form" onclick="toggleEdit(<?= $q['id'] ?>)">编辑</span>
@@ -657,7 +669,11 @@ $msg = $_GET['msg'] ?? '';
                                     <div class="form-group"><label>分值</label><input type="number" name="score" value="<?= $q['score'] ?>" min="1"></div>
                                     <div class="form-group"><label>排序</label><input type="number" name="sort_order" value="<?= $q['sort_order'] ?>"></div>
                                 </div>
-                                <div class="form-group"><label>题目内容</label><textarea name="content" rows="2" required><?= htmlspecialchars($q['content']) ?></textarea></div>
+                                <div class="form-group">
+                                    <label>题目内容</label>
+                                    <textarea name="content" rows="4" required><?= htmlspecialchars($q['content']) ?></textarea>
+                                    <button type="button" class="upload-img-btn" onclick="uploadImageForEdit('edit_content_<?= $q['id'] ?>')"><i class="fas fa-image"></i> 上传图片</button>
+                                </div>
                                 <?php if ($q['type'] === 'single' || $q['type'] === 'multiple'): ?>
                                     <div class="form-group"><label>选项</label><textarea name="options" rows="4" required><?php 
                                         $opts = json_decode($q['options'], true);
@@ -719,7 +735,7 @@ $msg = $_GET['msg'] ?? '';
                                 <tr>
                                     <td><?= $ans['id'] ?></td>
                                     <td><span class="question-type type-<?= $ans['type'] ?>"><?= ['single'=>'单选','multiple'=>'多选','fill'=>'填空','essay'=>'解答'][$ans['type']] ?></span></td>
-                                    <td><?= htmlspecialchars(mb_substr($ans['content'], 0, 25)) ?>...</td>
+                                    <td><?= htmlspecialchars(mb_substr(strip_tags($ans['content']), 0, 25)) ?>...</td>
                                     <td>
                                         <?php if ($ans['type'] === 'essay'): ?>
                                             <div class="student-answer" style="max-width:300px; white-space:pre-wrap;"><?= htmlspecialchars($ans['user_answer'] ?? '未作答') ?></div>
@@ -769,11 +785,7 @@ $msg = $_GET['msg'] ?? '';
 </div>
 
 <script>
-    function toggleEdit(id) {
-        const row = document.getElementById('edit-row-' + id);
-        if (row) row.classList.toggle('hidden');
-    }
-    
+    // 切换题型显示
     function toggleOptions() {
         const type = document.getElementById('qType').value;
         const optionsGroup = document.getElementById('optionsGroup');
@@ -795,6 +807,73 @@ $msg = $_GET['msg'] ?? '';
         }
     }
     toggleOptions();
+
+    // 切换编辑行
+    function toggleEdit(id) {
+        const row = document.getElementById('edit-row-' + id);
+        if (row) row.classList.toggle('hidden');
+    }
+
+    // 上传图片（添加题目时）
+    function uploadImage() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.onchange = function(e) {
+            const file = this.files[0];
+            if (!file) return;
+            const formData = new FormData();
+            formData.append('action', 'upload_image');
+            formData.append('image', file);
+            fetch('admin.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.code === 0) {
+                    const url = data.data.url;
+                    const textarea = document.getElementById('contentInput');
+                    // 在末尾插入 <img>
+                    textarea.value += '\n<img src="' + url + '" alt="题目图片" style="max-width:100%;">\n';
+                } else {
+                    alert('上传失败：' + data.message);
+                }
+            })
+            .catch(err => alert('上传出错：' + err.message));
+        };
+        input.click();
+    }
+
+    // 上传图片（编辑题目时）
+    function uploadImageForEdit(textareaId) {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.onchange = function(e) {
+            const file = this.files[0];
+            if (!file) return;
+            const formData = new FormData();
+            formData.append('action', 'upload_image');
+            formData.append('image', file);
+            fetch('admin.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.code === 0) {
+                    const url = data.data.url;
+                    const textarea = document.getElementById(textareaId);
+                    textarea.value += '\n<img src="' + url + '" alt="题目图片" style="max-width:100%;">\n';
+                } else {
+                    alert('上传失败：' + data.message);
+                }
+            })
+            .catch(err => alert('上传出错：' + err.message));
+        };
+        input.click();
+    }
 </script>
 </body>
 </html>
