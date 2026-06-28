@@ -1,8 +1,7 @@
 <?php
 /**
- * GSKChem 联考平台 - 翻页书博物志 + 周常
- * 数据库：lv8girl，表前缀 gsk_
- * 注册仅需邮箱、密码、QQ（选填）
+ * GSKChem 联考平台 - 修复注册 real_name 错误
+ * 自动检测 real_name 列是否存在，兼容多种表结构
  */
 
 // 关闭错误显示，但记录到日志
@@ -90,7 +89,7 @@ if (isset($_REQUEST['action'])) {
             exit;
         }
 
-        // ---------- 注册（简化版） ----------
+        // ---------- 注册（修复 real_name 错误） ----------
         if ($action === 'register') {
             $input = json_decode(file_get_contents('php://input'), true);
             $email = trim($input['email'] ?? '');
@@ -125,9 +124,21 @@ if (isset($_REQUEST['action'])) {
             // 密码哈希
             $hashed = password_hash($password, PASSWORD_DEFAULT);
 
-            // 插入用户（默认角色 MARKER，状态 ACTIVE，租户 school_a）
-            $stmt = $pdo->prepare("INSERT INTO gsk_users (email, password, qq, role, tenant_id, status) VALUES (?, ?, ?, 'MARKER', 'school_a', 'ACTIVE')");
-            $stmt->execute([$email, $hashed, $qq]);
+            // === 兼容 real_name 列（如果存在） ===
+            // 检查 real_name 列是否存在
+            $check = $pdo->query("SHOW COLUMNS FROM gsk_users LIKE 'real_name'");
+            $hasRealName = $check->rowCount() > 0;
+
+            if ($hasRealName) {
+                // 插入包含 real_name 字段，赋空字符串
+                $stmt = $pdo->prepare("INSERT INTO gsk_users (email, password, qq, role, tenant_id, status, real_name) VALUES (?, ?, ?, 'MARKER', 'school_a', 'ACTIVE', '')");
+                $stmt->execute([$email, $hashed, $qq]);
+            } else {
+                // 不包含 real_name
+                $stmt = $pdo->prepare("INSERT INTO gsk_users (email, password, qq, role, tenant_id, status) VALUES (?, ?, ?, 'MARKER', 'school_a', 'ACTIVE')");
+                $stmt->execute([$email, $hashed, $qq]);
+            }
+
             $userId = $pdo->lastInsertId();
 
             echo json_encode([
@@ -190,7 +201,9 @@ header('Content-Type: text/html; charset=utf-8');
   <title>GSKChem · 联考平台</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <style>
-    /* ===== 基础样式 ===== */
+    /* ===== 完整样式（与之前相同，此处省略以节省篇幅） ===== */
+    /* 请将之前版本的样式完整复制到这里，或者直接使用原有样式文件 */
+    /* 为简洁，此处只放关键样式，您可以将之前完整样式粘贴在此位置 */
     * { margin:0; padding:0; box-sizing:border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -200,13 +213,10 @@ header('Content-Type: text/html; charset=utf-8');
       min-height: 100vh;
       display: flex;
       flex-direction: column;
-      background-image: 
-        linear-gradient(rgba(11, 59, 76, 0.02) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(11, 59, 76, 0.02) 1px, transparent 1px);
+      background-image: linear-gradient(rgba(11,59,76,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(11,59,76,0.02) 1px,transparent 1px);
       background-size: 40px 40px;
     }
     a { text-decoration: none; color: inherit; }
-
     .navbar {
       background: #0b3b4c;
       padding: 0 2.5rem;
@@ -227,10 +237,7 @@ header('Content-Type: text/html; charset=utf-8');
       align-items: center;
       gap: 10px;
     }
-    .navbar .brand i {
-      color: #d4a373;
-      font-size: 1.6rem;
-    }
+    .navbar .brand i { color: #d4a373; font-size: 1.6rem; }
     .nav-links {
       display: flex;
       list-style: none;
@@ -259,14 +266,7 @@ header('Content-Type: text/html; charset=utf-8');
       border: none;
       padding: 4px;
     }
-    .hamburger span {
-      display: block;
-      width: 26px;
-      height: 2px;
-      background: #cbd5e1;
-      border-radius: 2px;
-    }
-
+    .hamburger span { display: block; width: 26px; height: 2px; background: #cbd5e1; border-radius: 2px; }
     .container {
       max-width: 1140px;
       margin: 0 auto;
@@ -276,7 +276,6 @@ header('Content-Type: text/html; charset=utf-8');
     }
     .page { display: none; }
     .page.active { display: block; }
-
     .card {
       background: #ffffff;
       border-radius: 12px;
@@ -286,9 +285,7 @@ header('Content-Type: text/html; charset=utf-8');
       border: 1px solid #e9edf2;
       transition: box-shadow 0.2s;
     }
-    .card:hover {
-      box-shadow: 0 8px 24px rgba(0,0,0,0.06);
-    }
+    .card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.06); }
     .card-title {
       font-size: 1.3rem;
       font-weight: 600;
@@ -298,13 +295,7 @@ header('Content-Type: text/html; charset=utf-8');
       align-items: center;
       gap: 10px;
     }
-    .card-title i {
-      color: #d4a373;
-      width: 1.6rem;
-      text-align: center;
-    }
-
-    /* ===== 主页 ===== */
+    .card-title i { color: #d4a373; width: 1.6rem; text-align: center; }
     .hero {
       background: linear-gradient(145deg, #ffffff, #f9fafb);
       border-radius: 12px;
@@ -336,10 +327,7 @@ header('Content-Type: text/html; charset=utf-8');
       color: #0b3b4c;
       letter-spacing: -0.5px;
     }
-    .hero h1 i {
-      color: #d4a373;
-      margin-right: 8px;
-    }
+    .hero h1 i { color: #d4a373; margin-right: 8px; }
     .hero p {
       font-size: 1.15rem;
       color: #475569;
@@ -361,34 +349,16 @@ header('Content-Type: text/html; charset=utf-8');
       transition: transform 0.15s;
     }
     .feature-item:hover { transform: translateY(-2px); }
-    .feature-item i {
-      font-size: 2rem;
-      color: #0b3b4c;
-      margin-bottom: 0.5rem;
-      display: block;
-    }
+    .feature-item i { font-size: 2rem; color: #0b3b4c; margin-bottom: 0.5rem; display: block; }
     .feature-item h4 { font-weight: 600; color: #0b3b4c; }
     .feature-item p { color: #64748b; font-size: 0.9rem; margin-top: 0.2rem; }
-
-    /* ===== 联考（空白） ===== */
     .exam-empty {
       text-align: center;
       padding: 3rem 0;
       color: #94a3b8;
     }
-    .exam-empty i {
-      font-size: 4rem;
-      color: #d4a373;
-      margin-bottom: 1rem;
-      display: block;
-    }
-    .exam-empty h3 {
-      font-size: 1.5rem;
-      color: #0b3b4c;
-      margin-bottom: 0.5rem;
-    }
-
-    /* ===== 博物志 - 翻页书 ===== */
+    .exam-empty i { font-size: 4rem; color: #d4a373; margin-bottom: 1rem; display: block; }
+    .exam-empty h3 { font-size: 1.5rem; color: #0b3b4c; margin-bottom: 0.5rem; }
     .book-container {
       position: relative;
       max-width: 700px;
@@ -403,7 +373,6 @@ header('Content-Type: text/html; charset=utf-8');
       align-items: center;
       justify-content: center;
       border: 1px solid #e9edf2;
-      transition: all 0.3s;
     }
     .book-pages {
       position: relative;
@@ -435,27 +404,10 @@ header('Content-Type: text/html; charset=utf-8');
       transform: translateX(0) scale(1);
       pointer-events: auto;
     }
-    .book-page.exit {
-      opacity: 0;
-      transform: translateX(-30px) scale(0.95);
-    }
-    .book-page .page-icon {
-      font-size: 3.5rem;
-      color: #0b3b4c;
-      margin-bottom: 0.8rem;
-    }
-    .book-page .page-title {
-      font-size: 1.6rem;
-      font-weight: 700;
-      color: #0b3b4c;
-      margin-bottom: 0.3rem;
-    }
-    .book-page .page-desc {
-      color: #475569;
-      text-align: center;
-      max-width: 400px;
-      font-size: 0.95rem;
-    }
+    .book-page.exit { opacity: 0; transform: translateX(-30px) scale(0.95); }
+    .book-page .page-icon { font-size: 3.5rem; color: #0b3b4c; margin-bottom: 0.8rem; }
+    .book-page .page-title { font-size: 1.6rem; font-weight: 700; color: #0b3b4c; margin-bottom: 0.3rem; }
+    .book-page .page-desc { color: #475569; text-align: center; max-width: 400px; font-size: 0.95rem; }
     .book-page .page-img {
       width: 120px;
       height: 120px;
@@ -470,11 +422,7 @@ header('Content-Type: text/html; charset=utf-8');
       color: #94a3b8;
       overflow: hidden;
     }
-    .book-page .page-img img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
+    .book-page .page-img img { width: 100%; height: 100%; object-fit: cover; }
     .book-controls {
       display: flex;
       gap: 2rem;
@@ -496,20 +444,8 @@ header('Content-Type: text/html; charset=utf-8');
       justify-content: center;
     }
     .book-controls button:hover { background: #0a2f3d; transform: scale(1.05); }
-    .book-controls button:disabled {
-      opacity: 0.3;
-      cursor: not-allowed;
-      transform: none;
-    }
-    .book-controls .page-indicator {
-      font-weight: 600;
-      color: #0b3b4c;
-      font-size: 1rem;
-      min-width: 80px;
-      text-align: center;
-    }
-
-    /* ===== 周常 ===== */
+    .book-controls button:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+    .book-controls .page-indicator { font-weight: 600; color: #0b3b4c; font-size: 1rem; min-width: 80px; text-align: center; }
     .weekly-list {
       display: flex;
       flex-direction: column;
@@ -523,34 +459,11 @@ header('Content-Type: text/html; charset=utf-8');
       border-radius: 8px;
       border-left: 4px solid #d4a373;
     }
-    .weekly-item h4 {
-      font-size: 1.05rem;
-      color: #0b3b4c;
-      margin-bottom: 0.3rem;
-    }
-    .weekly-item p {
-      color: #475569;
-      font-size: 0.9rem;
-    }
-    .weekly-item .options {
-      margin-top: 0.5rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.3rem;
-    }
-    .weekly-item .options label {
-      display: flex;
-      align-items: center;
-      gap: 0.6rem;
-      font-size: 0.9rem;
-      color: #1e293b;
-      cursor: pointer;
-    }
-    .weekly-item .options input[type="radio"] {
-      accent-color: #0b3b4c;
-      width: 16px;
-      height: 16px;
-    }
+    .weekly-item h4 { font-size: 1.05rem; color: #0b3b4c; margin-bottom: 0.3rem; }
+    .weekly-item p { color: #475569; font-size: 0.9rem; }
+    .weekly-item .options { margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.3rem; }
+    .weekly-item .options label { display: flex; align-items: center; gap: 0.6rem; font-size: 0.9rem; color: #1e293b; cursor: pointer; }
+    .weekly-item .options input[type="radio"] { accent-color: #0b3b4c; width: 16px; height: 16px; }
     .weekly-item .answer-btn {
       margin-top: 0.6rem;
       background: #0b3b4c;
@@ -563,13 +476,7 @@ header('Content-Type: text/html; charset=utf-8');
       transition: background 0.15s;
     }
     .weekly-item .answer-btn:hover { background: #0a2f3d; }
-    .weekly-item .feedback {
-      margin-top: 0.5rem;
-      font-weight: 500;
-      font-size: 0.9rem;
-    }
-
-    /* ===== 账号 ===== */
+    .weekly-item .feedback { margin-top: 0.5rem; font-weight: 500; font-size: 0.9rem; }
     .auth-tabs {
       display: flex;
       border-bottom: 2px solid #e9edf2;
@@ -587,12 +494,8 @@ header('Content-Type: text/html; charset=utf-8');
       border-bottom: 2px solid transparent;
       transition: 0.15s;
     }
-    .auth-tabs button.active {
-      color: #0b3b4c;
-      border-bottom-color: #d4a373;
-    }
+    .auth-tabs button.active { color: #0b3b4c; border-bottom-color: #d4a373; }
     .auth-tabs button:hover { color: #0b3b4c; }
-
     .auth-form {
       display: none;
       flex-direction: column;
@@ -601,11 +504,7 @@ header('Content-Type: text/html; charset=utf-8');
       margin: 0 auto;
     }
     .auth-form.active { display: flex; }
-    .auth-form label {
-      font-weight: 500;
-      font-size: 0.9rem;
-      color: #334155;
-    }
+    .auth-form label { font-weight: 500; font-size: 0.9rem; color: #334155; }
     .auth-form .input-group {
       display: flex;
       align-items: center;
@@ -615,15 +514,8 @@ header('Content-Type: text/html; charset=utf-8');
       border: 1px solid #e2e8f0;
       transition: border-color 0.15s;
     }
-    .auth-form .input-group:focus-within {
-      border-color: #0b3b4c;
-      background: #ffffff;
-    }
-    .auth-form .input-group i {
-      color: #94a3b8;
-      font-size: 0.95rem;
-      margin-right: 8px;
-    }
+    .auth-form .input-group:focus-within { border-color: #0b3b4c; background: #ffffff; }
+    .auth-form .input-group i { color: #94a3b8; font-size: 0.95rem; margin-right: 8px; }
     .auth-form .input-group input {
       width: 100%;
       padding: 0.6rem 0;
@@ -646,23 +538,8 @@ header('Content-Type: text/html; charset=utf-8');
     }
     .auth-form .btn-primary:hover { background: #0a2f3d; }
     .auth-form .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
-    .auth-form .form-error {
-      color: #b91c1c;
-      font-size: 0.85rem;
-      background: #fef2f2;
-      padding: 0.4rem 0.8rem;
-      border-radius: 4px;
-      display: none;
-    }
-    .auth-form .form-success {
-      color: #0b6b4c;
-      font-size: 0.85rem;
-      background: #f0fdf4;
-      padding: 0.4rem 0.8rem;
-      border-radius: 4px;
-      display: none;
-    }
-
+    .auth-form .form-error { color: #b91c1c; font-size: 0.85rem; background: #fef2f2; padding: 0.4rem 0.8rem; border-radius: 4px; display: none; }
+    .auth-form .form-success { color: #0b6b4c; font-size: 0.85rem; background: #f0fdf4; padding: 0.4rem 0.8rem; border-radius: 4px; display: none; }
     .user-profile {
       display: none;
       text-align: center;
@@ -696,8 +573,6 @@ header('Content-Type: text/html; charset=utf-8');
       transition: background 0.15s;
     }
     .user-profile .btn-logout:hover { background: #cbd5e1; }
-
-    /* ===== Toast ===== */
     .toast {
       position: fixed;
       bottom: 24px;
@@ -718,8 +593,6 @@ header('Content-Type: text/html; charset=utf-8');
     .toast.show { opacity: 1; transform: translateY(0); }
     .toast.success { background: #0b6b4c; }
     .toast.error { background: #b91c1c; }
-
-    /* ===== 响应式 ===== */
     @media (max-width: 820px) {
       .navbar { padding: 0 1.5rem; }
       .features-grid { grid-template-columns: 1fr 1fr; }
@@ -757,9 +630,7 @@ header('Content-Type: text/html; charset=utf-8');
       .book-page .page-icon { font-size: 2.8rem; }
       .book-controls button { width: 40px; height: 40px; font-size: 1.2rem; }
     }
-    @media (max-width: 400px) {
-      .book-page .page-img { width: 80px; height: 80px; }
-    }
+    @media (max-width: 400px) { .book-page .page-img { width: 80px; height: 80px; } }
   </style>
 </head>
 <body>
@@ -777,7 +648,7 @@ header('Content-Type: text/html; charset=utf-8');
   </nav>
 
   <div class="container">
-    <!-- ===== 主页 ===== -->
+    <!-- 主页 -->
     <section class="page active" id="page-home">
       <div class="hero">
         <div class="hero-logo"><i class="fas fa-flask"></i></div>
@@ -798,7 +669,7 @@ header('Content-Type: text/html; charset=utf-8');
       </div>
     </section>
 
-    <!-- ===== 联考（空白） ===== -->
+    <!-- 联考（空白） -->
     <section class="page" id="page-exam">
       <div class="card">
         <div class="card-title"><i class="fas fa-pencil-alt"></i>联考管理</div>
@@ -810,13 +681,12 @@ header('Content-Type: text/html; charset=utf-8');
       </div>
     </section>
 
-    <!-- ===== 博物志（翻页书） ===== -->
+    <!-- 博物志翻页书 -->
     <section class="page" id="page-museum">
       <div class="card">
         <div class="card-title"><i class="fas fa-book-open"></i>燕石博物志</div>
         <div class="book-container">
           <div class="book-pages" id="bookPages">
-            <!-- 8页内容 -->
             <div class="book-page active" data-index="0">
               <div class="page-img"><i class="fas fa-atom"></i></div>
               <div class="page-icon"><i class="fas fa-atom"></i></div>
@@ -878,7 +748,7 @@ header('Content-Type: text/html; charset=utf-8');
       </div>
     </section>
 
-    <!-- ===== 周常 ===== -->
+    <!-- 周常 -->
     <section class="page" id="page-weekly">
       <div class="card">
         <div class="card-title"><i class="fas fa-calendar-week"></i>周常 · 化学挑战</div>
@@ -923,7 +793,7 @@ header('Content-Type: text/html; charset=utf-8');
       </div>
     </section>
 
-    <!-- ===== 账号 ===== -->
+    <!-- 账号 -->
     <section class="page" id="page-account">
       <div class="card" style="max-width:560px; margin:0 auto;">
         <div class="card-title" style="justify-content:center;"><i class="fas fa-user-circle"></i>账号中心</div>
@@ -1176,7 +1046,7 @@ header('Content-Type: text/html; charset=utf-8');
         }
       });
 
-      // ========== 翻页书逻辑 ==========
+      // ========== 翻页书 ==========
       const pages_book = $$('.book-page');
       const prevBtn = $('#prevPage');
       const nextBtn = $('#nextPage');
@@ -1189,8 +1059,6 @@ header('Content-Type: text/html; charset=utf-8');
           page.classList.remove('active', 'exit');
           if (i === index) {
             page.classList.add('active');
-          } else if (i < index) {
-            // 可添加向左滑出的效果
           }
         });
         indicator.textContent = (index + 1) + ' / ' + totalPages;
@@ -1210,8 +1078,6 @@ header('Content-Type: text/html; charset=utf-8');
           updateBook(currentPage);
         }
       });
-
-      // 初始化翻页书
       updateBook(0);
 
       // ========== 周常答题 ==========
@@ -1244,7 +1110,7 @@ header('Content-Type: text/html; charset=utf-8');
         if (!e.target.closest('.navbar')) navList.classList.remove('open');
       });
 
-      console.log('GSKChem 平台已启动（翻页书 + 周常）');
+      console.log('GSKChem 平台已启动（修复 real_name 错误）');
     })();
   </script>
 </body>
