@@ -1,8 +1,8 @@
 <?php
 /**
- * GSKChem 联考平台 - 精简注册版
+ * GSKChem 联考平台 - 翻页书博物志 + 周常
  * 数据库：lv8girl，表前缀 gsk_
- * 注册仅需邮箱、密码、QQ（选填），无需验证码和邀请码
+ * 注册仅需邮箱、密码、QQ（选填）
  */
 
 // 关闭错误显示，但记录到日志
@@ -190,7 +190,7 @@ header('Content-Type: text/html; charset=utf-8');
   <title>GSKChem · 联考平台</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <style>
-    /* ===== 样式与之前相同（略） ===== */
+    /* ===== 基础样式 ===== */
     * { margin:0; padding:0; box-sizing:border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -304,6 +304,7 @@ header('Content-Type: text/html; charset=utf-8');
       text-align: center;
     }
 
+    /* ===== 主页 ===== */
     .hero {
       background: linear-gradient(145deg, #ffffff, #f9fafb);
       border-radius: 12px;
@@ -327,19 +328,8 @@ header('Content-Type: text/html; charset=utf-8');
       color: #0b3b4c;
       transition: transform 0.2s;
     }
-    .hero-logo:hover {
-      transform: scale(1.02);
-    }
-    .hero-logo i {
-      color: #0b3b4c;
-    }
-    .hero-logo img {
-      width: 100%;
-      height: 100%;
-      border-radius: 50%;
-      object-fit: cover;
-      display: block;
-    }
+    .hero-logo:hover { transform: scale(1.02); }
+    .hero-logo i { color: #0b3b4c; }
     .hero h1 {
       font-size: 2.6rem;
       font-weight: 700;
@@ -370,63 +360,216 @@ header('Content-Type: text/html; charset=utf-8');
       border: 1px solid #e9edf2;
       transition: transform 0.15s;
     }
-    .feature-item:hover {
-      transform: translateY(-2px);
-    }
+    .feature-item:hover { transform: translateY(-2px); }
     .feature-item i {
       font-size: 2rem;
       color: #0b3b4c;
       margin-bottom: 0.5rem;
       display: block;
     }
-    .feature-item h4 {
+    .feature-item h4 { font-weight: 600; color: #0b3b4c; }
+    .feature-item p { color: #64748b; font-size: 0.9rem; margin-top: 0.2rem; }
+
+    /* ===== 联考（空白） ===== */
+    .exam-empty {
+      text-align: center;
+      padding: 3rem 0;
+      color: #94a3b8;
+    }
+    .exam-empty i {
+      font-size: 4rem;
+      color: #d4a373;
+      margin-bottom: 1rem;
+      display: block;
+    }
+    .exam-empty h3 {
+      font-size: 1.5rem;
+      color: #0b3b4c;
+      margin-bottom: 0.5rem;
+    }
+
+    /* ===== 博物志 - 翻页书 ===== */
+    .book-container {
+      position: relative;
+      max-width: 700px;
+      margin: 0 auto;
+      background: #ffffff;
+      border-radius: 16px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.10);
+      padding: 2rem 1.5rem;
+      min-height: 400px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #e9edf2;
+      transition: all 0.3s;
+    }
+    .book-pages {
+      position: relative;
+      width: 100%;
+      height: 350px;
+      overflow: hidden;
+    }
+    .book-page {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      background: #ffffff;
+      border-radius: 12px;
+      opacity: 0;
+      transform: translateX(30px) scale(0.95);
+      transition: all 0.5s cubic-bezier(0.23, 1, 0.32, 1);
+      pointer-events: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+    .book-page.active {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+      pointer-events: auto;
+    }
+    .book-page.exit {
+      opacity: 0;
+      transform: translateX(-30px) scale(0.95);
+    }
+    .book-page .page-icon {
+      font-size: 3.5rem;
+      color: #0b3b4c;
+      margin-bottom: 0.8rem;
+    }
+    .book-page .page-title {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #0b3b4c;
+      margin-bottom: 0.3rem;
+    }
+    .book-page .page-desc {
+      color: #475569;
+      text-align: center;
+      max-width: 400px;
+      font-size: 0.95rem;
+    }
+    .book-page .page-img {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background: #f0f4f8;
+      border: 2px solid #d4a373;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 0.8rem;
+      font-size: 3rem;
+      color: #94a3b8;
+      overflow: hidden;
+    }
+    .book-page .page-img img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .book-controls {
+      display: flex;
+      gap: 2rem;
+      margin-top: 1.5rem;
+      align-items: center;
+    }
+    .book-controls button {
+      background: #0b3b4c;
+      color: #fff;
+      border: none;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      font-size: 1.4rem;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .book-controls button:hover { background: #0a2f3d; transform: scale(1.05); }
+    .book-controls button:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .book-controls .page-indicator {
       font-weight: 600;
       color: #0b3b4c;
-    }
-    .feature-item p {
-      color: #64748b;
-      font-size: 0.9rem;
-      margin-top: 0.2rem;
-    }
-
-    .exam-list {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-      gap: 1rem;
-      margin: 1rem 0 1.5rem;
-    }
-    .exam-card {
-      background: #f8fafc;
-      padding: 1rem 1.2rem;
-      border-radius: 6px;
-      border-left: 4px solid #94a3b8;
-      cursor: pointer;
-      transition: background 0.15s, border-color 0.15s;
-    }
-    .exam-card:hover { background: #f1f5f9; }
-    .exam-card.selected {
-      border-left-color: #d4a373;
-      background: #fefcf7;
-    }
-    .exam-card h4 { font-weight: 600; font-size: 1rem; color: #0b3b4c; }
-    .exam-card .meta { color: #64748b; font-size: 0.85rem; margin-top: 0.2rem; }
-
-    .upload-area {
-      border: 2px dashed #cbd5e1;
-      border-radius: 8px;
-      padding: 1.8rem 1rem;
+      font-size: 1rem;
+      min-width: 80px;
       text-align: center;
-      background: #fafcff;
-      cursor: pointer;
-      margin: 0.8rem 0 1rem;
-      transition: border-color 0.2s, background 0.2s;
     }
-    .upload-area:hover { border-color: #0b3b4c; background: #f0f4f8; }
-    .upload-area.dragover { border-color: #d4a373; background: #fefcf7; }
-    .upload-area i { font-size: 2.4rem; color: #94a3b8; }
-    .upload-area p { font-weight: 500; color: #1e293b; }
-    .upload-area .hint { font-size: 0.85rem; color: #94a3b8; }
 
+    /* ===== 周常 ===== */
+    .weekly-list {
+      display: flex;
+      flex-direction: column;
+      gap: 1.2rem;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+    .weekly-item {
+      background: #f8fafc;
+      padding: 1.2rem 1.5rem;
+      border-radius: 8px;
+      border-left: 4px solid #d4a373;
+    }
+    .weekly-item h4 {
+      font-size: 1.05rem;
+      color: #0b3b4c;
+      margin-bottom: 0.3rem;
+    }
+    .weekly-item p {
+      color: #475569;
+      font-size: 0.9rem;
+    }
+    .weekly-item .options {
+      margin-top: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+    .weekly-item .options label {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 0.9rem;
+      color: #1e293b;
+      cursor: pointer;
+    }
+    .weekly-item .options input[type="radio"] {
+      accent-color: #0b3b4c;
+      width: 16px;
+      height: 16px;
+    }
+    .weekly-item .answer-btn {
+      margin-top: 0.6rem;
+      background: #0b3b4c;
+      color: #fff;
+      border: none;
+      padding: 0.3rem 1.2rem;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .weekly-item .answer-btn:hover { background: #0a2f3d; }
+    .weekly-item .feedback {
+      margin-top: 0.5rem;
+      font-weight: 500;
+      font-size: 0.9rem;
+    }
+
+    /* ===== 账号 ===== */
     .auth-tabs {
       display: flex;
       border-bottom: 2px solid #e9edf2;
@@ -554,36 +697,7 @@ header('Content-Type: text/html; charset=utf-8');
     }
     .user-profile .btn-logout:hover { background: #cbd5e1; }
 
-    .museum-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-      gap: 1rem;
-      margin: 1rem 0;
-    }
-    .museum-item {
-      background: #f8fafc;
-      padding: 1.2rem 0.6rem;
-      border-radius: 6px;
-      text-align: center;
-      border: 1px solid #e9edf2;
-      transition: background 0.15s;
-    }
-    .museum-item:hover { background: #f1f5f9; }
-    .museum-item i { font-size: 2rem; color: #0b3b4c; margin-bottom: 0.3rem; }
-    .museum-item h4 { font-weight: 600; font-size: 0.95rem; color: #0b3b4c; }
-    .museum-item p { color: #64748b; font-size: 0.8rem; }
-
-    .footer {
-      background: #0b3b4c;
-      color: #94a3b8;
-      text-align: center;
-      padding: 1.2rem 1rem;
-      font-size: 0.85rem;
-      border-top: 2px solid #d4a373;
-      margin-top: 1.5rem;
-    }
-    .footer span { color: #d4a373; }
-
+    /* ===== Toast ===== */
     .toast {
       position: fixed;
       bottom: 24px;
@@ -605,10 +719,13 @@ header('Content-Type: text/html; charset=utf-8');
     .toast.success { background: #0b6b4c; }
     .toast.error { background: #b91c1c; }
 
+    /* ===== 响应式 ===== */
     @media (max-width: 820px) {
       .navbar { padding: 0 1.5rem; }
       .features-grid { grid-template-columns: 1fr 1fr; }
       .hero-logo { width: 80px; height: 80px; line-height: 80px; font-size: 2.2rem; }
+      .book-container { padding: 1.5rem 1rem; min-height: 350px; }
+      .book-pages { height: 300px; }
     }
     @media (max-width: 640px) {
       .hamburger { display: flex; }
@@ -629,16 +746,19 @@ header('Content-Type: text/html; charset=utf-8');
       .nav-links li a { padding: 0.6rem 0; border-bottom: none; }
       .nav-links li a:hover { background: #1e4c5e; color: #fff; }
       .features-grid { grid-template-columns: 1fr; }
-      .exam-list { grid-template-columns: 1fr; }
-      .museum-grid { grid-template-columns: 1fr 1fr; }
       .container { padding: 1rem 0.8rem; }
       .card { padding: 1.2rem; }
       .hero { padding: 1.8rem 1.2rem; }
       .hero h1 { font-size: 2rem; }
       .hero-logo { width: 72px; height: 72px; line-height: 72px; font-size: 2rem; }
+      .book-container { padding: 1rem; min-height: 300px; }
+      .book-pages { height: 260px; }
+      .book-page .page-title { font-size: 1.3rem; }
+      .book-page .page-icon { font-size: 2.8rem; }
+      .book-controls button { width: 40px; height: 40px; font-size: 1.2rem; }
     }
     @media (max-width: 400px) {
-      .museum-grid { grid-template-columns: 1fr; }
+      .book-page .page-img { width: 80px; height: 80px; }
     }
   </style>
 </head>
@@ -651,12 +771,13 @@ header('Content-Type: text/html; charset=utf-8');
       <li><a href="#" class="active" data-page="home">主页</a></li>
       <li><a href="#" data-page="exam">联考</a></li>
       <li><a href="#" data-page="museum">博物志</a></li>
+      <li><a href="#" data-page="weekly">周常</a></li>
       <li><a href="#" data-page="account">账号</a></li>
     </ul>
   </nav>
 
   <div class="container">
-    <!-- 主页 -->
+    <!-- ===== 主页 ===== -->
     <section class="page active" id="page-home">
       <div class="hero">
         <div class="hero-logo"><i class="fas fa-flask"></i></div>
@@ -677,53 +798,132 @@ header('Content-Type: text/html; charset=utf-8');
       </div>
     </section>
 
-    <!-- 联考 -->
+    <!-- ===== 联考（空白） ===== -->
     <section class="page" id="page-exam">
       <div class="card">
-        <div class="card-title"><i class="fas fa-pencil-alt"></i>进行中的联考</div>
-        <div id="examListContainer">
-          <div class="exam-list" id="examList"></div>
-        </div>
-        <div style="margin-top:1.5rem; border-top:1px solid #e9edf2; padding-top:1.2rem;">
-          <h4 style="font-weight:600; margin-bottom:0.5rem; color:#0b3b4c;">
-            <i class="fas fa-cloud-upload-alt" style="color:#d4a373;"></i> 上传答题卡
-          </h4>
-          <p style="color:#475569; font-size:0.9rem; margin-bottom:0.5rem;">选择上方考试后，上传图片（jpg/png）</p>
-          <div class="upload-area" id="uploadArea">
-            <i class="fas fa-file-image"></i>
-            <p><strong>点击或拖拽上传</strong></p>
-            <span class="hint">最大 5MB</span>
-            <input type="file" id="fileInput" accept="image/*" style="display:none;" />
-          </div>
-          <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
-            <button class="btn-primary" id="uploadBtn" style="padding:0.5rem 2rem; border:none; border-radius:6px; background:#0b3b4c; color:#fff; font-weight:600; cursor:pointer;">提交</button>
-            <span id="uploadStatus" style="font-size:0.9rem; color:#64748b;"></span>
-          </div>
-        </div>
-        <div style="margin-top:2rem; border-top:1px solid #e9edf2; padding-top:1.2rem;">
-          <h4 style="font-weight:600; margin-bottom:0.6rem; color:#0b3b4c;"><i class="fas fa-list-ul"></i> 我的上传记录</h4>
-          <div id="submissionList"><p style="color:#94a3b8; font-size:0.9rem;">暂无记录</p></div>
+        <div class="card-title"><i class="fas fa-pencil-alt"></i>联考管理</div>
+        <div class="exam-empty">
+          <i class="fas fa-hourglass-half"></i>
+          <h3>联考功能开发中</h3>
+          <p>敬请期待后续更新，届时将支持考试创建、答题卡上传与阅卷。</p>
         </div>
       </div>
     </section>
 
-    <!-- 博物志 -->
+    <!-- ===== 博物志（翻页书） ===== -->
     <section class="page" id="page-museum">
       <div class="card">
         <div class="card-title"><i class="fas fa-book-open"></i>燕石博物志</div>
-        <p style="color:#475569; margin-bottom:1rem;">化学知识库，持续收录中。</p>
-        <div class="museum-grid">
-          <div class="museum-item"><i class="fas fa-atom"></i><h4>元素周期表</h4><p>118种元素</p></div>
-          <div class="museum-item"><i class="fas fa-bezier-curve"></i><h4>分子结构</h4><p>三维模型</p></div>
-          <div class="museum-item"><i class="fas fa-fire"></i><h4>化学反应</h4><p>燃烧与催化</p></div>
-          <div class="museum-item"><i class="fas fa-flask"></i><h4>实验仪器</h4><p>常用工具</p></div>
-          <div class="museum-item"><i class="fas fa-dna"></i><h4>生物化学</h4><p>生命化学</p></div>
-          <div class="museum-item"><i class="fas fa-microscope"></i><h4>材料科学</h4><p>纳米到宏观</p></div>
+        <div class="book-container">
+          <div class="book-pages" id="bookPages">
+            <!-- 8页内容 -->
+            <div class="book-page active" data-index="0">
+              <div class="page-img"><i class="fas fa-atom"></i></div>
+              <div class="page-icon"><i class="fas fa-atom"></i></div>
+              <div class="page-title">元素周期表</div>
+              <div class="page-desc">118种元素的规律与奥秘，从氢到Og。</div>
+            </div>
+            <div class="book-page" data-index="1">
+              <div class="page-img"><i class="fas fa-bezier-curve"></i></div>
+              <div class="page-icon"><i class="fas fa-bezier-curve"></i></div>
+              <div class="page-title">分子结构</div>
+              <div class="page-desc">三维空间中的化学键与分子构型。</div>
+            </div>
+            <div class="book-page" data-index="2">
+              <div class="page-img"><i class="fas fa-fire"></i></div>
+              <div class="page-icon"><i class="fas fa-fire"></i></div>
+              <div class="page-title">化学反应</div>
+              <div class="page-desc">燃烧、置换、催化……万千变化。</div>
+            </div>
+            <div class="book-page" data-index="3">
+              <div class="page-img"><i class="fas fa-flask"></i></div>
+              <div class="page-icon"><i class="fas fa-flask"></i></div>
+              <div class="page-title">实验仪器</div>
+              <div class="page-desc">烧杯、试管、酒精灯——实验室的基石。</div>
+            </div>
+            <div class="book-page" data-index="4">
+              <div class="page-img"><i class="fas fa-dna"></i></div>
+              <div class="page-icon"><i class="fas fa-dna"></i></div>
+              <div class="page-title">生物化学</div>
+              <div class="page-desc">生命体中的化学反应与代谢途径。</div>
+            </div>
+            <div class="book-page" data-index="5">
+              <div class="page-img"><i class="fas fa-microscope"></i></div>
+              <div class="page-icon"><i class="fas fa-microscope"></i></div>
+              <div class="page-title">材料科学</div>
+              <div class="page-desc">从纳米材料到高分子，化学构筑世界。</div>
+            </div>
+            <div class="book-page" data-index="6">
+              <div class="page-img"><i class="fas fa-history"></i></div>
+              <div class="page-icon"><i class="fas fa-history"></i></div>
+              <div class="page-title">化学史</div>
+              <div class="page-desc">从炼金术到现代化学的璀璨历程。</div>
+            </div>
+            <div class="book-page" data-index="7">
+              <div class="page-img"><i class="fas fa-trophy"></i></div>
+              <div class="page-icon"><i class="fas fa-trophy"></i></div>
+              <div class="page-title">诺贝尔化学奖</div>
+              <div class="page-desc">那些改变世界的化学发现与人物。</div>
+            </div>
+          </div>
+          <div class="book-controls">
+            <button id="prevPage" disabled><i class="fas fa-chevron-left"></i></button>
+            <span class="page-indicator" id="pageIndicator">1 / 8</span>
+            <button id="nextPage"><i class="fas fa-chevron-right"></i></button>
+          </div>
+        </div>
+        <p style="text-align:center;color:#94a3b8;font-size:0.9rem;margin-top:0.8rem;">
+          <i class="fas fa-info-circle"></i> 点击左右翻页，每页可替换为您自己的图片。
+        </p>
+      </div>
+    </section>
+
+    <!-- ===== 周常 ===== -->
+    <section class="page" id="page-weekly">
+      <div class="card">
+        <div class="card-title"><i class="fas fa-calendar-week"></i>周常 · 化学挑战</div>
+        <div class="weekly-list">
+          <div class="weekly-item">
+            <h4>🧪 第1题 · 元素推断</h4>
+            <p>某元素原子核外电子排布为 2, 8, 7，它位于元素周期表的第几周期第几族？</p>
+            <div class="options">
+              <label><input type="radio" name="q1" value="A"> A. 第三周期 VIIA族</label>
+              <label><input type="radio" name="q1" value="B"> B. 第三周期 VIIB族</label>
+              <label><input type="radio" name="q1" value="C"> C. 第二周期 VIIA族</label>
+              <label><input type="radio" name="q1" value="D"> D. 第三周期 VIA族</label>
+            </div>
+            <button class="answer-btn" data-question="1" data-answer="A">查看答案</button>
+            <div class="feedback" id="feedback1"></div>
+          </div>
+          <div class="weekly-item">
+            <h4>🧪 第2题 · 化学键</h4>
+            <p>下列物质中，含有离子键和共价键的是？</p>
+            <div class="options">
+              <label><input type="radio" name="q2" value="A"> A. NaOH</label>
+              <label><input type="radio" name="q2" value="B"> B. H₂O</label>
+              <label><input type="radio" name="q2" value="C"> C. NaCl</label>
+              <label><input type="radio" name="q2" value="D"> D. CO₂</label>
+            </div>
+            <button class="answer-btn" data-question="2" data-answer="A">查看答案</button>
+            <div class="feedback" id="feedback2"></div>
+          </div>
+          <div class="weekly-item">
+            <h4>🧪 第3题 · 化学平衡</h4>
+            <p>对于可逆反应 2SO₂(g) + O₂(g) ⇌ 2SO₃(g)，增大压强，平衡向哪个方向移动？</p>
+            <div class="options">
+              <label><input type="radio" name="q3" value="A"> A. 正反应方向</label>
+              <label><input type="radio" name="q3" value="B"> B. 逆反应方向</label>
+              <label><input type="radio" name="q3" value="C"> C. 不移动</label>
+              <label><input type="radio" name="q3" value="D"> D. 无法判断</label>
+            </div>
+            <button class="answer-btn" data-question="3" data-answer="A">查看答案</button>
+            <div class="feedback" id="feedback3"></div>
+          </div>
         </div>
       </div>
     </section>
 
-    <!-- 账号 -->
+    <!-- ===== 账号 ===== -->
     <section class="page" id="page-account">
       <div class="card" style="max-width:560px; margin:0 auto;">
         <div class="card-title" style="justify-content:center;"><i class="fas fa-user-circle"></i>账号中心</div>
@@ -747,7 +947,7 @@ header('Content-Type: text/html; charset=utf-8');
           <div class="input-group"><i class="fas fa-lock"></i><input type="password" id="loginPassword" placeholder="请输入密码" required /></div>
           <button type="submit" class="btn-primary">登录</button>
         </form>
-        <!-- 注册（精简版） -->
+        <!-- 注册 -->
         <form class="auth-form" id="registerForm">
           <div class="form-error" id="registerError"></div>
           <div class="form-success" id="registerSuccess"></div>
@@ -861,8 +1061,6 @@ header('Content-Type: text/html; charset=utf-8');
           $('#registerError').style.display = 'none';
           $('#registerSuccess').style.display = 'none';
         }
-        renderExams();
-        renderSubmissions();
       }
 
       async function initUser() {
@@ -926,7 +1124,7 @@ header('Content-Type: text/html; charset=utf-8');
         }
       });
 
-      // 注册（精简版）
+      // 注册
       $('#registerForm').addEventListener('submit', async function(e) {
         e.preventDefault();
         const email = $('#regEmail').value.trim();
@@ -978,130 +1176,65 @@ header('Content-Type: text/html; charset=utf-8');
         }
       });
 
-      // 考试列表（模拟，使用 localStorage）
-      function renderExams() {
-        let exams = JSON.parse(localStorage.getItem('gskchem_exams') || '[]');
-        if (exams.length === 0) {
-          exams = [
-            { id: 'exam1', name: '2026年春季化学联考', subject: 'CHEMISTRY', startTime: '2026-04-15T09:00:00Z', endTime: '2026-04-15T11:00:00Z', status: 'IN_PROGRESS' },
-            { id: 'exam2', name: '2026年夏季化学联考', subject: 'CHEMISTRY', startTime: '2026-07-20T09:00:00Z', endTime: '2026-07-20T11:00:00Z', status: 'PENDING' },
-            { id: 'exam3', name: '2025年秋季化学联考', subject: 'CHEMISTRY', startTime: '2025-10-10T09:00:00Z', endTime: '2025-10-10T11:00:00Z', status: 'COMPLETED' }
-          ];
-          localStorage.setItem('gskchem_exams', JSON.stringify(exams));
-        }
-        const inProgress = exams.filter(e => e.status === 'IN_PROGRESS');
-        const container = $('#examList');
-        if (inProgress.length === 0) {
-          container.innerHTML = '<p style="color:#94a3b8;">暂无进行中的考试</p>';
-          return;
-        }
-        container.innerHTML = inProgress.map(exam => `
-          <div class="exam-card" data-exam-id="${exam.id}">
-            <h4>🧪 ${exam.name}</h4>
-            <div class="meta">${new Date(exam.startTime).toLocaleString()}</div>
-          </div>
-        `).join('');
-        container.querySelectorAll('.exam-card').forEach(el => {
-          el.addEventListener('click', function() {
-            container.querySelectorAll('.exam-card').forEach(c => c.classList.remove('selected'));
-            this.classList.add('selected');
-          });
+      // ========== 翻页书逻辑 ==========
+      const pages_book = $$('.book-page');
+      const prevBtn = $('#prevPage');
+      const nextBtn = $('#nextPage');
+      const indicator = $('#pageIndicator');
+      let currentPage = 0;
+      const totalPages = pages_book.length;
+
+      function updateBook(index) {
+        pages_book.forEach((page, i) => {
+          page.classList.remove('active', 'exit');
+          if (i === index) {
+            page.classList.add('active');
+          } else if (i < index) {
+            // 可添加向左滑出的效果
+          }
         });
-        const first = container.querySelector('.exam-card');
-        if (first) first.classList.add('selected');
+        indicator.textContent = (index + 1) + ' / ' + totalPages;
+        prevBtn.disabled = index === 0;
+        nextBtn.disabled = index === totalPages - 1;
       }
 
-      // 上传记录（模拟）
-      function renderSubmissions() {
-        const container = $('#submissionList');
-        if (!currentUser) {
-          container.innerHTML = '<p style="color:#94a3b8;">请登录查看记录</p>';
-          return;
+      prevBtn.addEventListener('click', () => {
+        if (currentPage > 0) {
+          currentPage--;
+          updateBook(currentPage);
         }
-        const all = JSON.parse(localStorage.getItem('gskchem_submissions') || '[]');
-        const my = all.filter(s => s.userId === currentUser.id);
-        if (my.length === 0) {
-          container.innerHTML = '<p style="color:#94a3b8;">暂无上传记录</p>';
-          return;
+      });
+      nextBtn.addEventListener('click', () => {
+        if (currentPage < totalPages - 1) {
+          currentPage++;
+          updateBook(currentPage);
         }
-        let html = '<div style="display:flex;flex-direction:column;gap:0.4rem;">';
-        my.slice().reverse().forEach(s => {
-          html += `
-            <div style="background:#f8fafc;padding:0.5rem 1rem;border-radius:4px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;border-left:3px solid #d4a373;">
-              <span><strong>${s.fileName}</strong> <span style="color:#64748b;font-size:0.85rem;">(${(s.fileSize/1024).toFixed(1)} KB)</span></span>
-              <span style="color:#64748b;font-size:0.85rem;">${new Date(s.uploadTime).toLocaleString()}</span>
-            </div>
-          `;
+      });
+
+      // 初始化翻页书
+      updateBook(0);
+
+      // ========== 周常答题 ==========
+      $$('.answer-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          const qNum = this.dataset.question;
+          const correct = this.dataset.answer;
+          const feedback = document.getElementById('feedback' + qNum);
+          const selected = document.querySelector(`input[name="q${qNum}"]:checked`);
+          if (!selected) {
+            feedback.textContent = '请先选择一个选项';
+            feedback.style.color = '#d4a373';
+            return;
+          }
+          const userAnswer = selected.value;
+          if (userAnswer === correct) {
+            feedback.textContent = '✅ 回答正确！';
+            feedback.style.color = '#0b6b4c';
+          } else {
+            feedback.textContent = '❌ 回答错误，正确答案是 ' + correct;
+            feedback.style.color = '#b91c1c';
+          }
         });
-        html += '</div>';
-        container.innerHTML = html;
-      }
-
-      // 上传功能（模拟）
-      let selectedFile = null;
-      const uploadArea = $('#uploadArea');
-      const fileInput = $('#fileInput');
-
-      uploadArea.addEventListener('click', () => {
-        if (!currentUser) { showToast('请先登录', 'error'); return; }
-        fileInput.click();
-      });
-      uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
-      uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
-      uploadArea.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadArea.classList.remove('dragover');
-        if (!currentUser) { showToast('请先登录', 'error'); return; }
-        if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
-      });
-      fileInput.addEventListener('change', function() {
-        if (this.files.length > 0) handleFile(this.files[0]);
-        this.value = '';
-      });
-
-      function handleFile(file) {
-        if (!file.type.startsWith('image/')) { showToast('请上传图片文件', 'error'); return; }
-        if (file.size > 5 * 1024 * 1024) { showToast('文件不能超过5MB', 'error'); return; }
-        selectedFile = file;
-        $('#uploadStatus').textContent = '已选择: ' + file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB)';
-        $('#uploadStatus').style.color = '#0b3b4c';
-        showToast('已选择文件', 'info');
-      }
-
-      $('#uploadBtn').addEventListener('click', async function() {
-        if (!currentUser) { showToast('请先登录', 'error'); return; }
-        const selected = document.querySelector('.exam-card.selected');
-        if (!selected) { showToast('请先选择一场考试', 'error'); return; }
-        const examId = selected.dataset.examId;
-        if (!selectedFile) { showToast('请选择一张图片', 'error'); return; }
-
-        this.disabled = true;
-        this.innerHTML = '上传中...';
-        const status = $('#uploadStatus');
-        status.textContent = '上传中...';
-        status.style.color = '#d4a373';
-        // 模拟上传
-        setTimeout(() => {
-          const subs = JSON.parse(localStorage.getItem('gskchem_submissions') || '[]');
-          const entry = {
-            id: 'sub_' + Date.now(),
-            examId,
-            userId: currentUser.id,
-            fileName: selectedFile.name,
-            fileSize: selectedFile.size,
-            uploadTime: new Date().toISOString(),
-            status: '已收集'
-          };
-          subs.push(entry);
-          localStorage.setItem('gskchem_submissions', JSON.stringify(subs));
-          status.textContent = '✅ 上传成功';
-          status.style.color = '#0b6b4c';
-          showToast('上传成功', 'success');
-          selectedFile = null;
-          renderSubmissions();
-          this.disabled = false;
-          this.innerHTML = '提交';
-        }, 1200);
       });
 
       // ========== 启动 ==========
@@ -1111,7 +1244,7 @@ header('Content-Type: text/html; charset=utf-8');
         if (!e.target.closest('.navbar')) navList.classList.remove('open');
       });
 
-      console.log('GSKChem 平台已启动（精简注册版）');
+      console.log('GSKChem 平台已启动（翻页书 + 周常）');
     })();
   </script>
 </body>
