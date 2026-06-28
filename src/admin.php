@@ -1,6 +1,6 @@
 <?php
 /**
- * LunaticChO 管理后台 - 修复学生列表查询
+ * LunaticChO 管理后台 - 修复学生列表重复
  */
 
 session_start();
@@ -291,13 +291,25 @@ if ($exam_id) {
         $stmt->execute([$exam_id]);
         $questions = $stmt->fetchAll();
         
-        // 修复查询：LEFT JOIN gsk_results 获取总分和状态
+        // ===== 修复：使用 GROUP BY 确保学生唯一 =====
         $stmt = $pdo->prepare("SELECT u.id, u.username, u.email, r.total_score, r.status as result_status 
                                FROM gsk_users u 
                                LEFT JOIN gsk_results r ON r.exam_id = ? AND r.user_id = u.id
-                               WHERE u.id IN (SELECT DISTINCT user_id FROM gsk_answers WHERE exam_id = ?)");
+                               WHERE u.id IN (SELECT user_id FROM gsk_answers WHERE exam_id = ? GROUP BY user_id)
+                               GROUP BY u.id");
         $stmt->execute([$exam_id, $exam_id]);
         $students = $stmt->fetchAll();
+        
+        // 二次去重（保险）
+        $uniqueStudents = [];
+        $seen = [];
+        foreach ($students as $stu) {
+            if (!in_array($stu['id'], $seen)) {
+                $seen[] = $stu['id'];
+                $uniqueStudents[] = $stu;
+            }
+        }
+        $students = $uniqueStudents;
         
         // 获取每个学生的答题详情
         foreach ($students as &$stu) {
@@ -698,7 +710,7 @@ $msg = $_GET['msg'] ?? '';
         <?php endif; ?>
     </div>
 
-    <!-- ===== 阅卷管理（修复版） ===== -->
+    <!-- ===== 阅卷管理（修复重复） ===== -->
     <div class="section">
         <h2><i class="fas fa-check-double"></i> 阅卷管理</h2>
         
