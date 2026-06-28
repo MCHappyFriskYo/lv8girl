@@ -1,6 +1,6 @@
 <?php
 /**
- * LunaticCho 管理后台 - 修复学生列表查询
+ * LunaticChO 管理后台 - 修复学生列表查询
  */
 
 session_start();
@@ -326,7 +326,7 @@ $msg = $_GET['msg'] ?? '';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LunaticCho 管理后台</title>
+    <title>LunaticChO 管理后台</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         /* ===== 样式与之前相同 ===== */
@@ -494,7 +494,7 @@ $msg = $_GET['msg'] ?? '';
 <body>
 <div class="container">
     <h1>
-        <i class="fas fa-tools"></i> LunaticCho 管理后台
+        <i class="fas fa-tools"></i> LunaticChO 管理后台
         <span style="font-size:0.9rem; font-weight:400; margin-left:auto;">
             欢迎，<?= htmlspecialchars($_SESSION['username']) ?>
             <a href="index.php?action=logout" onclick="return confirm('确认退出？')">退出</a>
