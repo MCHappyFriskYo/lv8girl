@@ -1,6 +1,6 @@
 <?php
 /**
- * LunaticCho 前台 - 修复选择题作答
+ * LunaticCho 前台 - 最终版（含刷新按钮）
  */
 
 error_reporting(E_ALL);
@@ -1085,7 +1085,12 @@ header('Content-Type: text/html; charset=utf-8');
         <p style="color:#334155;">LunaticCho 为化学联考提供从试卷发布、答题卡扫描上传到成绩统计的全流程支持。考生通过邮箱注册，可随时上传答题卡，教师端统一收集，高效便捷。</p>
       </div>
       <div class="card" id="homeProgressCard">
-        <div class="card-title"><i class="fas fa-calendar-check"></i>我的周常进度</div>
+        <div class="card-title">
+          <i class="fas fa-calendar-check"></i>我的周常进度
+          <span style="margin-left:auto; font-size:0.9rem; cursor:pointer; color:#2563eb;" onclick="renderHomeProgress();renderWeekly();showToast('已刷新', 'success');">
+            <i class="fas fa-sync-alt"></i> 刷新
+          </span>
+        </div>
         <div id="homeProgressContent"><p style="color:#94a3b8;text-align:center;padding:0.5rem 0;">加载中...</p></div>
       </div>
       <div class="card">
@@ -1736,12 +1741,10 @@ header('Content-Type: text/html; charset=utf-8');
           `;
           container.innerHTML = html;
 
-          // 提交答案事件
           document.getElementById('examForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             const formData = new FormData(this);
             const answers = {};
-            // 收集所有答案
             for (let [key, value] of formData.entries()) {
               const qid = parseInt(key.replace('q_', ''));
               if (value && value.trim()) {
@@ -1752,7 +1755,6 @@ header('Content-Type: text/html; charset=utf-8');
                 }
               }
             }
-            // 检查是否至少有一题作答
             if (Object.keys(answers).length === 0) {
               showToast('请至少回答一道题', 'error');
               return;
@@ -1876,7 +1878,7 @@ header('Content-Type: text/html; charset=utf-8');
         if (!e.target.closest('.navbar')) navList.classList.remove('open');
       });
 
-      console.log('LunaticCho 前台启动完成（修复选择题）');
+      console.log('LunaticCho 前台启动完成（含刷新按钮）');
     })();
   </script>
 </body>
