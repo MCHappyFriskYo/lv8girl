@@ -651,4 +651,150 @@ $msg = $_GET['msg'] ?? '';
                         <div class="edit-form">
                             <form method="POST">
                                 <input type="hidden" name="action" value="edit_question">
-                                <
+                                <input type="hidden" name="qid" value="<?= $q['id'] ?>">
+                                <input type="hidden" name="exam_id" value="<?= $exam['id'] ?>">
+                                <div class="form-row">
+                                    <div class="form-group"><label>分值</label><input type="number" name="score" value="<?= $q['score'] ?>" min="1"></div>
+                                    <div class="form-group"><label>排序</label><input type="number" name="sort_order" value="<?= $q['sort_order'] ?>"></div>
+                                </div>
+                                <div class="form-group"><label>题目内容</label><textarea name="content" rows="2" required><?= htmlspecialchars($q['content']) ?></textarea></div>
+                                <?php if ($q['type'] === 'single' || $q['type'] === 'multiple'): ?>
+                                    <div class="form-group"><label>选项</label><textarea name="options" rows="4" required><?php 
+                                        $opts = json_decode($q['options'], true);
+                                        echo htmlspecialchars(implode("\n", $opts));
+                                    ?></textarea></div>
+                                    <div class="form-group"><label>正确答案</label><input type="text" name="answer" value="<?= htmlspecialchars($q['answer']) ?>"></div>
+                                <?php elseif ($q['type'] === 'fill'): ?>
+                                    <div class="form-group"><label>填空答案</label><input type="text" name="fill_answer" value="<?= htmlspecialchars($q['answer']) ?>"></div>
+                                <?php endif; ?>
+                                <button type="submit" class="btn btn-success btn-sm">更新</button>
+                                <span class="toggle-form" onclick="toggleEdit(<?= $q['id'] ?>)">取消</span>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php endif; ?>
+    </div>
+
+    <!-- ===== 阅卷管理 ===== -->
+    <div class="section">
+        <h2><i class="fas fa-check-double"></i> 阅卷管理</h2>
+        
+        <?php if (count($students) > 0): ?>
+            <div style="margin-bottom:1rem;">
+                <form method="POST" class="inline" onsubmit="return confirm('确定自动批改所有客观题？')">
+                    <input type="hidden" name="action" value="auto_grade">
+                    <input type="hidden" name="exam_id" value="<?= $exam['id'] ?>">
+                    <button type="submit" class="btn btn-warning">🤖 自动批改客观题</button>
+                </form>
+            </div>
+            
+            <?php foreach ($students as $stu): ?>
+                <details style="margin-bottom:0.8rem;">
+                    <summary style="cursor:pointer; font-weight:600; color:#0b3b4c; padding:0.5rem; background:#f8fafc; border-radius:6px;">
+                        <?= htmlspecialchars($stu['username']) ?> 
+                        (<?= $stu['email'] ?>) 
+                        - 总分: <?= $stu['total_score'] ?? '未批改' ?>
+                        <span class="badge badge-<?= ($stu['result_status'] ?? 'pending') === 'graded' ? 'completed' : 'grading' ?>">
+                            <?= ($stu['result_status'] ?? 'pending') === 'graded' ? '已批改' : '待批改' ?>
+                        </span>
+                    </summary>
+                    <div style="padding:1rem 0.5rem;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>题号</th>
+                                    <th>题型</th>
+                                    <th>题目</th>
+                                    <th>学生答案</th>
+                                    <th>得分</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            <?php foreach ($stu['answers'] as $ans): ?>
+                                <tr>
+                                    <td><?= $ans['id'] ?></td>
+                                    <td><span class="question-type type-<?= $ans['type'] ?>"><?= ['single'=>'单选','multiple'=>'多选','fill'=>'填空','essay'=>'解答'][$ans['type']] ?></span></td>
+                                    <td><?= htmlspecialchars(mb_substr($ans['content'], 0, 25)) ?>...</td>
+                                    <td>
+                                        <?php if ($ans['type'] === 'essay'): ?>
+                                            <div class="student-answer" style="max-width:300px; white-space:pre-wrap;"><?= htmlspecialchars($ans['user_answer'] ?? '未作答') ?></div>
+                                        <?php elseif ($ans['type'] === 'multiple'): ?>
+                                            <?= htmlspecialchars($ans['user_answer'] ?? '未作答') ?>
+                                        <?php else: ?>
+                                            <?= htmlspecialchars($ans['user_answer'] ?? '未作答') ?>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if ($ans['score'] !== null): ?>
+                                            <span class="<?= $ans['score'] == $ans['max_score'] ? 'correct' : 'wrong' ?>">
+                                                <?= $ans['score'] ?>/<?= $ans['max_score'] ?>
+                                            </span>
+                                        <?php else: ?>
+                                            <span style="color:#94a3b8;">待批改</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if ($ans['status'] === 'pending' && $ans['user_answer']): ?>
+                                            <form method="POST" class="inline">
+                                                <input type="hidden" name="action" value="grade_answer">
+                                                <input type="hidden" name="answer_id" value="<?= $ans['answer_id'] ?>">
+                                                <input type="hidden" name="exam_id" value="<?= $exam['id'] ?>">
+                                                <input type="hidden" name="user_id" value="<?= $stu['id'] ?>">
+                                                <input type="number" name="score" min="0" max="<?= $ans['max_score'] ?>" style="width:50px;" required>
+                                                <button type="submit" class="btn btn-success btn-sm">评分</button>
+                                            </form>
+                                        <?php elseif ($ans['status'] === 'graded'): ?>
+                                            <span style="color:#94a3b8;">已批改</span>
+                                        <?php else: ?>
+                                            <span style="color:#94a3b8;">未作答</span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+            <?php endforeach; ?>
+        <?php else: ?>
+            <p style="color:#94a3b8;">暂无学生提交答案。</p>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
+</div>
+
+<script>
+    function toggleEdit(id) {
+        const row = document.getElementById('edit-row-' + id);
+        if (row) row.classList.toggle('hidden');
+    }
+    
+    function toggleOptions() {
+        const type = document.getElementById('qType').value;
+        const optionsGroup = document.getElementById('optionsGroup');
+        const answerGroup = document.getElementById('answerGroup');
+        const fillGroup = document.getElementById('fillGroup');
+        
+        if (type === 'single' || type === 'multiple') {
+            optionsGroup.style.display = 'block';
+            answerGroup.style.display = 'block';
+            fillGroup.style.display = 'none';
+        } else if (type === 'fill') {
+            optionsGroup.style.display = 'none';
+            answerGroup.style.display = 'none';
+            fillGroup.style.display = 'block';
+        } else { // essay
+            optionsGroup.style.display = 'none';
+            answerGroup.style.display = 'none';
+            fillGroup.style.display = 'none';
+        }
+    }
+    toggleOptions();
+</script>
+</body>
+</html>
