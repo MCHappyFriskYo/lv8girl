@@ -1,7 +1,7 @@
 <?php
 /**
- * GSKChem 联考平台 - 修复注册 real_name 错误
- * 自动检测 real_name 列是否存在，兼容多种表结构
+ * GSKChem 联考平台 - 博物志翻页书图片版
+ * 图片文件：01.jpg ~ 08.jpg，放置于 index.php 同级目录
  */
 
 // 关闭错误显示，但记录到日志
@@ -14,7 +14,7 @@ ob_start();
 
 // ========== 数据库配置 ==========
 function gsk_config() {
-    $host = 'db';
+    $host = 'localhost';
     $dbname = 'lv8girl';
     $db_user = 'lv8girl';
     $db_pass = 'yourpasswd';   // 请修改为实际密码
@@ -89,7 +89,7 @@ if (isset($_REQUEST['action'])) {
             exit;
         }
 
-        // ---------- 注册（修复 real_name 错误） ----------
+        // ---------- 注册（兼容 real_name） ----------
         if ($action === 'register') {
             $input = json_decode(file_get_contents('php://input'), true);
             $email = trim($input['email'] ?? '');
@@ -112,7 +112,6 @@ if (isset($_REQUEST['action'])) {
                 exit;
             }
 
-            // 检查邮箱是否已注册
             $stmt = $pdo->prepare("SELECT id FROM gsk_users WHERE email = ?");
             $stmt->execute([$email]);
             if ($stmt->fetch()) {
@@ -121,20 +120,16 @@ if (isset($_REQUEST['action'])) {
                 exit;
             }
 
-            // 密码哈希
             $hashed = password_hash($password, PASSWORD_DEFAULT);
 
-            // === 兼容 real_name 列（如果存在） ===
             // 检查 real_name 列是否存在
             $check = $pdo->query("SHOW COLUMNS FROM gsk_users LIKE 'real_name'");
             $hasRealName = $check->rowCount() > 0;
 
             if ($hasRealName) {
-                // 插入包含 real_name 字段，赋空字符串
                 $stmt = $pdo->prepare("INSERT INTO gsk_users (email, password, qq, role, tenant_id, status, real_name) VALUES (?, ?, ?, 'MARKER', 'school_a', 'ACTIVE', '')");
                 $stmt->execute([$email, $hashed, $qq]);
             } else {
-                // 不包含 real_name
                 $stmt = $pdo->prepare("INSERT INTO gsk_users (email, password, qq, role, tenant_id, status) VALUES (?, ?, ?, 'MARKER', 'school_a', 'ACTIVE')");
                 $stmt->execute([$email, $hashed, $qq]);
             }
@@ -201,9 +196,7 @@ header('Content-Type: text/html; charset=utf-8');
   <title>GSKChem · 联考平台</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <style>
-    /* ===== 完整样式（与之前相同，此处省略以节省篇幅） ===== */
-    /* 请将之前版本的样式完整复制到这里，或者直接使用原有样式文件 */
-    /* 为简洁，此处只放关键样式，您可以将之前完整样式粘贴在此位置 */
+    /* ===== 样式（与之前完全一致，这里简写，实际使用时完整复制） ===== */
     * { margin:0; padding:0; box-sizing:border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -681,56 +674,64 @@ header('Content-Type: text/html; charset=utf-8');
       </div>
     </section>
 
-    <!-- 博物志翻页书 -->
+    <!-- ===== 博物志翻页书（图片版） ===== -->
     <section class="page" id="page-museum">
       <div class="card">
         <div class="card-title"><i class="fas fa-book-open"></i>燕石博物志</div>
         <div class="book-container">
           <div class="book-pages" id="bookPages">
+            <!-- 第1页：01.jpg -->
             <div class="book-page active" data-index="0">
-              <div class="page-img"><i class="fas fa-atom"></i></div>
+              <div class="page-img"><img src="01.jpg" alt="元素周期表"></div>
               <div class="page-icon"><i class="fas fa-atom"></i></div>
               <div class="page-title">元素周期表</div>
               <div class="page-desc">118种元素的规律与奥秘，从氢到Og。</div>
             </div>
+            <!-- 第2页：02.jpg -->
             <div class="book-page" data-index="1">
-              <div class="page-img"><i class="fas fa-bezier-curve"></i></div>
+              <div class="page-img"><img src="02.jpg" alt="分子结构"></div>
               <div class="page-icon"><i class="fas fa-bezier-curve"></i></div>
               <div class="page-title">分子结构</div>
               <div class="page-desc">三维空间中的化学键与分子构型。</div>
             </div>
+            <!-- 第3页：03.jpg -->
             <div class="book-page" data-index="2">
-              <div class="page-img"><i class="fas fa-fire"></i></div>
+              <div class="page-img"><img src="03.jpg" alt="化学反应"></div>
               <div class="page-icon"><i class="fas fa-fire"></i></div>
               <div class="page-title">化学反应</div>
               <div class="page-desc">燃烧、置换、催化……万千变化。</div>
             </div>
+            <!-- 第4页：04.jpg -->
             <div class="book-page" data-index="3">
-              <div class="page-img"><i class="fas fa-flask"></i></div>
+              <div class="page-img"><img src="04.jpg" alt="实验仪器"></div>
               <div class="page-icon"><i class="fas fa-flask"></i></div>
               <div class="page-title">实验仪器</div>
               <div class="page-desc">烧杯、试管、酒精灯——实验室的基石。</div>
             </div>
+            <!-- 第5页：05.jpg -->
             <div class="book-page" data-index="4">
-              <div class="page-img"><i class="fas fa-dna"></i></div>
+              <div class="page-img"><img src="05.jpg" alt="生物化学"></div>
               <div class="page-icon"><i class="fas fa-dna"></i></div>
               <div class="page-title">生物化学</div>
               <div class="page-desc">生命体中的化学反应与代谢途径。</div>
             </div>
+            <!-- 第6页：06.jpg -->
             <div class="book-page" data-index="5">
-              <div class="page-img"><i class="fas fa-microscope"></i></div>
+              <div class="page-img"><img src="06.jpg" alt="材料科学"></div>
               <div class="page-icon"><i class="fas fa-microscope"></i></div>
               <div class="page-title">材料科学</div>
               <div class="page-desc">从纳米材料到高分子，化学构筑世界。</div>
             </div>
+            <!-- 第7页：07.jpg -->
             <div class="book-page" data-index="6">
-              <div class="page-img"><i class="fas fa-history"></i></div>
+              <div class="page-img"><img src="07.jpg" alt="化学史"></div>
               <div class="page-icon"><i class="fas fa-history"></i></div>
               <div class="page-title">化学史</div>
               <div class="page-desc">从炼金术到现代化学的璀璨历程。</div>
             </div>
+            <!-- 第8页：08.jpg -->
             <div class="book-page" data-index="7">
-              <div class="page-img"><i class="fas fa-trophy"></i></div>
+              <div class="page-img"><img src="08.jpg" alt="诺贝尔化学奖"></div>
               <div class="page-icon"><i class="fas fa-trophy"></i></div>
               <div class="page-title">诺贝尔化学奖</div>
               <div class="page-desc">那些改变世界的化学发现与人物。</div>
@@ -743,7 +744,7 @@ header('Content-Type: text/html; charset=utf-8');
           </div>
         </div>
         <p style="text-align:center;color:#94a3b8;font-size:0.9rem;margin-top:0.8rem;">
-          <i class="fas fa-info-circle"></i> 点击左右翻页，每页可替换为您自己的图片。
+          <i class="fas fa-info-circle"></i> 图片文件（01.jpg ~ 08.jpg）请放置在网站根目录，与 index.php 同级。
         </p>
       </div>
     </section>
@@ -1110,7 +1111,7 @@ header('Content-Type: text/html; charset=utf-8');
         if (!e.target.closest('.navbar')) navList.classList.remove('open');
       });
 
-      console.log('GSKChem 平台已启动（修复 real_name 错误）');
+      console.log('GSKChem 平台已启动（博物志图片版）');
     })();
   </script>
 </body>
