@@ -1,6 +1,16 @@
 <?php
+
+// 关闭错误显示，但记录到日志
+error_reporting(E_ALL);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+
+// 启用输出缓冲，防止意外输出
+ob_start();
+
+// ========== 数据库配置 ==========
 function gsk_config() {
-    $host = 'localhost';
+    $host = 'db';
     $dbname = 'lv8girl';
     $db_user = 'lv8girl';
     $db_pass = 'yourpasswd';   // 请修改为实际密码
@@ -10,15 +20,16 @@ function gsk_config() {
         $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
         return $pdo;
     } catch (PDOException $e) {
-        http_response_code(500);
-        echo json_encode(['code' => 50000, 'message' => '数据库连接失败']);
+        // 返回 JSON 错误，并终止
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['code' => 50000, 'message' => '数据库连接失败：' . $e->getMessage()]);
         exit;
     }
 }
 
 // ========== 跨域与响应头 ==========
 header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: *'); // 生产环境请改为具体域名
+header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, GET, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, X-CSRF-TOKEN');
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -28,182 +39,197 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 // ========== 如果请求包含 action 参数，则处理 API ==========
 if (isset($_REQUEST['action'])) {
     $action = $_REQUEST['action'];
-    $pdo = gsk_config();
-    session_start();
+    try {
+        $pdo = gsk_config();
+        session_start();
 
-    // ---------- 登录 ----------
-    if ($action === 'login') {
-        $input = json_decode(file_get_contents('php://input'), true);
-        $email = trim($input['username'] ?? '');
-        $password = trim($input['password'] ?? '');
-        if (!$email || !$password) {
-            http_response_code(400);
-            echo json_encode(['code' => 40001, 'message' => '请填写邮箱和密码']);
-            exit;
-        }
-        $stmt = $pdo->prepare("SELECT * FROM gsk_users WHERE email = ?");
-        $stmt->execute([$email]);
-        $user = $stmt->fetch();
-        if (!$user || !password_verify($password, $user['password'])) {
-            http_response_code(401);
-            echo json_encode(['code' => 40001, 'message' => '邮箱或密码错误']);
-            exit;
-        }
-        if ($user['status'] !== 'ACTIVE') {
-            http_response_code(403);
-            echo json_encode(['code' => 40300, 'message' => '账号未激活，请联系管理员']);
-            exit;
-        }
-        $_SESSION['user_id'] = $user['id'];
-        $_SESSION['email'] = $user['email'];
-        $_SESSION['role'] = $user['role'];
-        $_SESSION['tenant_id'] = $user['tenant_id'];
-        echo json_encode([
-            'code' => 0,
-            'data' => [
-                'accessToken' => session_id(),
-                'expiresIn' => 900,
-                'user' => [
-                    'id' => $user['id'],
-                    'username' => $user['email'],
-                    'role' => $user['role'],
-                    'tenantId' => $user['tenant_id']
-                ]
-            ]
-        ]);
-        exit;
-    }
-
-    // ---------- 发送验证码 ----------
-    if ($action === 'send_code') {
-        $input = json_decode(file_get_contents('php://input'), true);
-        $email = trim($input['email'] ?? '');
-        if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            http_response_code(400);
-            echo json_encode(['code' => 40001, 'message' => '邮箱格式无效']);
-            exit;
-        }
-        // 60秒限制
-        $stmt = $pdo->prepare("SELECT created_at FROM gsk_codes WHERE email = ? ORDER BY created_at DESC LIMIT 1");
-        $stmt->execute([$email]);
-        $last = $stmt->fetch();
-        if ($last) {
-            $lastTime = strtotime($last['created_at']);
-            if (time() - $lastTime < 60) {
-                http_response_code(429);
-                echo json_encode(['code' => 42900, 'message' => '请求过于频繁，请稍后再试']);
+        // ---------- 登录 ----------
+        if ($action === 'login') {
+            $input = json_decode(file_get_contents('php://input'), true);
+            $email = trim($input['username'] ?? '');
+            $password = trim($input['password'] ?? '');
+            if (!$email || !$password) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '请填写邮箱和密码']);
                 exit;
             }
+            $stmt = $pdo->prepare("SELECT * FROM gsk_users WHERE email = ?");
+            $stmt->execute([$email]);
+            $user = $stmt->fetch();
+            if (!$user || !password_verify($password, $user['password'])) {
+                http_response_code(401);
+                echo json_encode(['code' => 40001, 'message' => '邮箱或密码错误']);
+                exit;
+            }
+            if ($user['status'] !== 'ACTIVE') {
+                http_response_code(403);
+                echo json_encode(['code' => 40300, 'message' => '账号未激活，请联系管理员']);
+                exit;
+            }
+            $_SESSION['user_id'] = $user['id'];
+            $_SESSION['email'] = $user['email'];
+            $_SESSION['role'] = $user['role'];
+            $_SESSION['tenant_id'] = $user['tenant_id'];
+            echo json_encode([
+                'code' => 0,
+                'data' => [
+                    'accessToken' => session_id(),
+                    'expiresIn' => 900,
+                    'user' => [
+                        'id' => $user['id'],
+                        'username' => $user['email'],
+                        'role' => $user['role'],
+                        'tenantId' => $user['tenant_id']
+                    ]
+                ]
+            ]);
+            exit;
         }
-        $code = sprintf("%06d", mt_rand(0, 999999));
-        $expires = date('Y-m-d H:i:s', strtotime('+5 minutes'));
-        $stmt = $pdo->prepare("INSERT INTO gsk_codes (email, code, expires_at) VALUES (?, ?, ?)");
-        $stmt->execute([$email, $code, $expires]);
-        error_log("验证码 $code 发送至 $email");
-        echo json_encode(['code' => 0, 'message' => '若该邮箱有效，验证码已发送，5分钟内有效']);
+
+        // ---------- 发送验证码 ----------
+        if ($action === 'send_code') {
+            $input = json_decode(file_get_contents('php://input'), true);
+            $email = trim($input['email'] ?? '');
+            if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '邮箱格式无效']);
+                exit;
+            }
+            // 60秒限制
+            $stmt = $pdo->prepare("SELECT created_at FROM gsk_codes WHERE email = ? ORDER BY created_at DESC LIMIT 1");
+            $stmt->execute([$email]);
+            $last = $stmt->fetch();
+            if ($last) {
+                $lastTime = strtotime($last['created_at']);
+                if (time() - $lastTime < 60) {
+                    http_response_code(429);
+                    echo json_encode(['code' => 42900, 'message' => '请求过于频繁，请稍后再试']);
+                    exit;
+                }
+            }
+            $code = sprintf("%06d", mt_rand(0, 999999));
+            $expires = date('Y-m-d H:i:s', strtotime('+5 minutes'));
+            $stmt = $pdo->prepare("INSERT INTO gsk_codes (email, code, expires_at) VALUES (?, ?, ?)");
+            $stmt->execute([$email, $code, $expires]);
+            // 记录日志（可替换为邮件发送）
+            error_log("验证码 $code 发送至 $email");
+            echo json_encode(['code' => 0, 'message' => '若该邮箱有效，验证码已发送，5分钟内有效']);
+            exit;
+        }
+
+        // ---------- 注册 ----------
+        if ($action === 'register') {
+            $input = json_decode(file_get_contents('php://input'), true);
+            $email = trim($input['email'] ?? '');
+            $code = trim($input['code'] ?? '');
+            $password = trim($input['password'] ?? '');
+            $realName = trim($input['realName'] ?? '');
+            $inviteCode = trim($input['tenantInviteCode'] ?? '');
+            $role = trim($input['role'] ?? 'MARKER');
+            $qq = trim($input['qq'] ?? '');
+            if (!$email || !$code || !$password || !$realName || !$inviteCode) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '请完整填写所有必填字段']);
+                exit;
+            }
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '邮箱格式无效']);
+                exit;
+            }
+            $strong = preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)|(?=.*[a-z])(?=.*[A-Z])(?=.*[^a-zA-Z0-9])|(?=.*[a-z])(?=.*\d)(?=.*[^a-zA-Z0-9])|(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9])/', $password);
+            if (strlen($password) < 8 || !$strong) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '密码至少8位，且包含大小写字母、数字、特殊字符中的至少三种']);
+                exit;
+            }
+            $stmt = $pdo->prepare("SELECT code, expires_at FROM gsk_codes WHERE email = ? ORDER BY created_at DESC LIMIT 1");
+            $stmt->execute([$email]);
+            $row = $stmt->fetch();
+            if (!$row || $row['code'] !== $code || strtotime($row['expires_at']) < time()) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '验证码错误或已过期']);
+                exit;
+            }
+            $stmt = $pdo->prepare("SELECT id FROM gsk_users WHERE email = ?");
+            $stmt->execute([$email]);
+            if ($stmt->fetch()) {
+                http_response_code(409);
+                echo json_encode(['code' => 40900, 'message' => '该邮箱已注册']);
+                exit;
+            }
+            $stmt = $pdo->prepare("SELECT * FROM gsk_invite_codes WHERE code = ? AND (expires_at IS NULL OR expires_at > NOW()) AND used_count < max_uses");
+            $stmt->execute([$inviteCode]);
+            $invite = $stmt->fetch();
+            if (!$invite) {
+                http_response_code(400);
+                echo json_encode(['code' => 40002, 'message' => '邀请码无效或已失效']);
+                exit;
+            }
+            $stmt = $pdo->prepare("UPDATE gsk_invite_codes SET used_count = used_count + 1 WHERE id = ?");
+            $stmt->execute([$invite['id']]);
+            $hashed = password_hash($password, PASSWORD_DEFAULT);
+            $stmt = $pdo->prepare("INSERT INTO gsk_users (email, password, real_name, qq, role, tenant_id, status) VALUES (?, ?, ?, ?, ?, ?, 'PENDING')");
+            $stmt->execute([$email, $hashed, $realName, $qq, $role, $invite['tenant_id']]);
+            $userId = $pdo->lastInsertId();
+            $stmt = $pdo->prepare("DELETE FROM gsk_codes WHERE email = ?");
+            $stmt->execute([$email]);
+            echo json_encode([
+                'code' => 0,
+                'message' => '注册成功，请等待管理员审核激活账号',
+                'data' => ['userId' => $userId]
+            ]);
+            exit;
+        }
+
+        // ---------- 获取当前用户 ----------
+        if ($action === 'get_user') {
+            if (!isset($_SESSION['user_id'])) {
+                http_response_code(401);
+                echo json_encode(['code' => 40100, 'message' => '未登录']);
+                exit;
+            }
+            $stmt = $pdo->prepare("SELECT id, email, real_name, qq, role FROM gsk_users WHERE id = ?");
+            $stmt->execute([$_SESSION['user_id']]);
+            $user = $stmt->fetch();
+            if (!$user) {
+                http_response_code(404);
+                echo json_encode(['code' => 40400, 'message' => '用户不存在']);
+                exit;
+            }
+            echo json_encode(['code' => 0, 'data' => $user]);
+            exit;
+        }
+
+        // ---------- 登出 ----------
+        if ($action === 'logout') {
+            session_destroy();
+            echo json_encode(['code' => 0, 'message' => '已登出']);
+            exit;
+        }
+
+        // 未知 action
+        http_response_code(400);
+        echo json_encode(['code' => 40001, 'message' => '无效的操作']);
+        exit;
+
+    } catch (Exception $e) {
+        // 捕获所有异常，返回 JSON 错误
+        http_response_code(500);
+        echo json_encode(['code' => 50000, 'message' => '服务器内部错误：' . $e->getMessage()]);
         exit;
     }
-
-    // ---------- 注册 ----------
-    if ($action === 'register') {
-        $input = json_decode(file_get_contents('php://input'), true);
-        $email = trim($input['email'] ?? '');
-        $code = trim($input['code'] ?? '');
-        $password = trim($input['password'] ?? '');
-        $realName = trim($input['realName'] ?? '');
-        $inviteCode = trim($input['tenantInviteCode'] ?? '');
-        $role = trim($input['role'] ?? 'MARKER');
-        $qq = trim($input['qq'] ?? '');
-        if (!$email || !$code || !$password || !$realName || !$inviteCode) {
-            http_response_code(400);
-            echo json_encode(['code' => 40001, 'message' => '请完整填写所有必填字段']);
-            exit;
-        }
-        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            http_response_code(400);
-            echo json_encode(['code' => 40001, 'message' => '邮箱格式无效']);
-            exit;
-        }
-        $strong = preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)|(?=.*[a-z])(?=.*[A-Z])(?=.*[^a-zA-Z0-9])|(?=.*[a-z])(?=.*\d)(?=.*[^a-zA-Z0-9])|(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9])/', $password);
-        if (strlen($password) < 8 || !$strong) {
-            http_response_code(400);
-            echo json_encode(['code' => 40001, 'message' => '密码至少8位，且包含大小写字母、数字、特殊字符中的至少三种']);
-            exit;
-        }
-        $stmt = $pdo->prepare("SELECT code, expires_at FROM gsk_codes WHERE email = ? ORDER BY created_at DESC LIMIT 1");
-        $stmt->execute([$email]);
-        $row = $stmt->fetch();
-        if (!$row || $row['code'] !== $code || strtotime($row['expires_at']) < time()) {
-            http_response_code(400);
-            echo json_encode(['code' => 40001, 'message' => '验证码错误或已过期']);
-            exit;
-        }
-        $stmt = $pdo->prepare("SELECT id FROM gsk_users WHERE email = ?");
-        $stmt->execute([$email]);
-        if ($stmt->fetch()) {
-            http_response_code(409);
-            echo json_encode(['code' => 40900, 'message' => '该邮箱已注册']);
-            exit;
-        }
-        $stmt = $pdo->prepare("SELECT * FROM gsk_invite_codes WHERE code = ? AND (expires_at IS NULL OR expires_at > NOW()) AND used_count < max_uses");
-        $stmt->execute([$inviteCode]);
-        $invite = $stmt->fetch();
-        if (!$invite) {
-            http_response_code(400);
-            echo json_encode(['code' => 40002, 'message' => '邀请码无效或已失效']);
-            exit;
-        }
-        $stmt = $pdo->prepare("UPDATE gsk_invite_codes SET used_count = used_count + 1 WHERE id = ?");
-        $stmt->execute([$invite['id']]);
-        $hashed = password_hash($password, PASSWORD_DEFAULT);
-        $stmt = $pdo->prepare("INSERT INTO gsk_users (email, password, real_name, qq, role, tenant_id, status) VALUES (?, ?, ?, ?, ?, ?, 'PENDING')");
-        $stmt->execute([$email, $hashed, $realName, $qq, $role, $invite['tenant_id']]);
-        $userId = $pdo->lastInsertId();
-        $stmt = $pdo->prepare("DELETE FROM gsk_codes WHERE email = ?");
-        $stmt->execute([$email]);
-        echo json_encode([
-            'code' => 0,
-            'message' => '注册成功，请等待管理员审核激活账号',
-            'data' => ['userId' => $userId]
-        ]);
-        exit;
-    }
-
-    // ---------- 获取当前用户 ----------
-    if ($action === 'get_user') {
-        if (!isset($_SESSION['user_id'])) {
-            http_response_code(401);
-            echo json_encode(['code' => 40100, 'message' => '未登录']);
-            exit;
-        }
-        $stmt = $pdo->prepare("SELECT id, email, real_name, qq, role FROM gsk_users WHERE id = ?");
-        $stmt->execute([$_SESSION['user_id']]);
-        $user = $stmt->fetch();
-        if (!$user) {
-            http_response_code(404);
-            echo json_encode(['code' => 40400, 'message' => '用户不存在']);
-            exit;
-        }
-        echo json_encode(['code' => 0, 'data' => $user]);
-        exit;
-    }
-
-    // ---------- 登出 ----------
-    if ($action === 'logout') {
-        session_destroy();
-        echo json_encode(['code' => 0, 'message' => '已登出']);
-        exit;
-    }
-
-    // 未知 action
-    http_response_code(400);
-    echo json_encode(['code' => 40001, 'message' => '无效的操作']);
-    exit;
 }
 
 // =================================================================
-// 以下是前端 HTML 界面，当没有 action 参数时输出
+// 没有 action 参数，输出 HTML 界面
 // =================================================================
+
+// 清空之前的输出缓冲，确保只输出 HTML
+ob_end_clean();
+
+// 重置响应头为 HTML
+header('Content-Type: text/html; charset=utf-8');
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -213,7 +239,7 @@ if (isset($_REQUEST['action'])) {
   <title>GSKChem · 联考平台</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <style>
-    /* ===== 基础重置 & 全局 ===== */
+    /* ===== 样式与之前版本相同，请复制您的样式 ===== */
     * { margin:0; padding:0; box-sizing:border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -230,7 +256,6 @@ if (isset($_REQUEST['action'])) {
     }
     a { text-decoration: none; color: inherit; }
 
-    /* ===== 导航栏 ===== */
     .navbar {
       background: #0b3b4c;
       padding: 0 2.5rem;
@@ -291,7 +316,6 @@ if (isset($_REQUEST['action'])) {
       border-radius: 2px;
     }
 
-    /* ===== 容器 ===== */
     .container {
       max-width: 1140px;
       margin: 0 auto;
@@ -302,7 +326,6 @@ if (isset($_REQUEST['action'])) {
     .page { display: none; }
     .page.active { display: block; }
 
-    /* ===== 卡片 ===== */
     .card {
       background: #ffffff;
       border-radius: 12px;
@@ -330,7 +353,6 @@ if (isset($_REQUEST['action'])) {
       text-align: center;
     }
 
-    /* ===== 主页 ===== */
     .hero {
       background: linear-gradient(145deg, #ffffff, #f9fafb);
       border-radius: 12px;
@@ -416,7 +438,6 @@ if (isset($_REQUEST['action'])) {
       margin-top: 0.2rem;
     }
 
-    /* ===== 联考列表 ===== */
     .exam-list {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -439,7 +460,6 @@ if (isset($_REQUEST['action'])) {
     .exam-card h4 { font-weight: 600; font-size: 1rem; color: #0b3b4c; }
     .exam-card .meta { color: #64748b; font-size: 0.85rem; margin-top: 0.2rem; }
 
-    /* ===== 上传区 ===== */
     .upload-area {
       border: 2px dashed #cbd5e1;
       border-radius: 8px;
@@ -456,7 +476,6 @@ if (isset($_REQUEST['action'])) {
     .upload-area p { font-weight: 500; color: #1e293b; }
     .upload-area .hint { font-size: 0.85rem; color: #94a3b8; }
 
-    /* ===== 账号 ===== */
     .auth-tabs {
       display: flex;
       border-bottom: 2px solid #e9edf2;
@@ -603,7 +622,6 @@ if (isset($_REQUEST['action'])) {
     }
     .user-profile .btn-logout:hover { background: #cbd5e1; }
 
-    /* ===== 博物志 ===== */
     .museum-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -623,7 +641,6 @@ if (isset($_REQUEST['action'])) {
     .museum-item h4 { font-weight: 600; font-size: 0.95rem; color: #0b3b4c; }
     .museum-item p { color: #64748b; font-size: 0.8rem; }
 
-    /* ===== 页脚 ===== */
     .footer {
       background: #0b3b4c;
       color: #94a3b8;
@@ -635,7 +652,6 @@ if (isset($_REQUEST['action'])) {
     }
     .footer span { color: #d4a373; }
 
-    /* ===== Toast ===== */
     .toast {
       position: fixed;
       bottom: 24px;
@@ -657,7 +673,6 @@ if (isset($_REQUEST['action'])) {
     .toast.success { background: #0b6b4c; }
     .toast.error { background: #b91c1c; }
 
-    /* ===== 响应式 ===== */
     @media (max-width: 820px) {
       .navbar { padding: 0 1.5rem; }
       .features-grid { grid-template-columns: 1fr 1fr; }
@@ -696,7 +711,6 @@ if (isset($_REQUEST['action'])) {
   </style>
 </head>
 <body>
-
   <!-- 导航 -->
   <nav class="navbar">
     <div class="brand"><i class="fas fa-flask"></i> GSKChem</div>
@@ -709,15 +723,11 @@ if (isset($_REQUEST['action'])) {
     </ul>
   </nav>
 
-  <!-- 主体 -->
   <div class="container">
-
-    <!-- ===== 主页 ===== -->
+    <!-- 主页 -->
     <section class="page active" id="page-home">
       <div class="hero">
-        <div class="hero-logo" id="siteLogo">
-          <i class="fas fa-flask"></i>
-        </div>
+        <div class="hero-logo"><i class="fas fa-flask"></i></div>
         <h1><i class="fas fa-flask"></i>GSKChem 联考平台</h1>
         <p>化学学科联考 · 答题卡收集 · 数据驱动教学</p>
       </div>
@@ -728,33 +738,20 @@ if (isset($_REQUEST['action'])) {
       <div class="card">
         <div class="card-title"><i class="fas fa-star"></i>核心功能</div>
         <div class="features-grid">
-          <div class="feature-item">
-            <i class="fas fa-envelope"></i>
-            <h4>邮箱注册</h4>
-            <p>验证码注册，快速安全</p>
-          </div>
-          <div class="feature-item">
-            <i class="fas fa-upload"></i>
-            <h4>答题卡上传</h4>
-            <p>支持拖拽/点击，图片格式</p>
-          </div>
-          <div class="feature-item">
-            <i class="fas fa-chart-bar"></i>
-            <h4>数据管理</h4>
-            <p>自动归档，随时查阅</p>
-          </div>
+          <div class="feature-item"><i class="fas fa-envelope"></i><h4>邮箱注册</h4><p>验证码注册，快速安全</p></div>
+          <div class="feature-item"><i class="fas fa-upload"></i><h4>答题卡上传</h4><p>支持拖拽/点击，图片格式</p></div>
+          <div class="feature-item"><i class="fas fa-chart-bar"></i><h4>数据管理</h4><p>自动归档，随时查阅</p></div>
         </div>
       </div>
     </section>
 
-    <!-- ===== 联考 ===== -->
+    <!-- 联考 -->
     <section class="page" id="page-exam">
       <div class="card">
         <div class="card-title"><i class="fas fa-pencil-alt"></i>进行中的联考</div>
         <div id="examListContainer">
           <div class="exam-list" id="examList"></div>
         </div>
-
         <div style="margin-top:1.5rem; border-top:1px solid #e9edf2; padding-top:1.2rem;">
           <h4 style="font-weight:600; margin-bottom:0.5rem; color:#0b3b4c;">
             <i class="fas fa-cloud-upload-alt" style="color:#d4a373;"></i> 上传答题卡
@@ -771,7 +768,6 @@ if (isset($_REQUEST['action'])) {
             <span id="uploadStatus" style="font-size:0.9rem; color:#64748b;"></span>
           </div>
         </div>
-
         <div style="margin-top:2rem; border-top:1px solid #e9edf2; padding-top:1.2rem;">
           <h4 style="font-weight:600; margin-bottom:0.6rem; color:#0b3b4c;"><i class="fas fa-list-ul"></i> 我的上传记录</h4>
           <div id="submissionList"><p style="color:#94a3b8; font-size:0.9rem;">暂无记录</p></div>
@@ -779,7 +775,7 @@ if (isset($_REQUEST['action'])) {
       </div>
     </section>
 
-    <!-- ===== 博物志 ===== -->
+    <!-- 博物志 -->
     <section class="page" id="page-museum">
       <div class="card">
         <div class="card-title"><i class="fas fa-book-open"></i>燕石博物志</div>
@@ -795,23 +791,20 @@ if (isset($_REQUEST['action'])) {
       </div>
     </section>
 
-    <!-- ===== 账号 ===== -->
+    <!-- 账号 -->
     <section class="page" id="page-account">
       <div class="card" style="max-width:560px; margin:0 auto;">
         <div class="card-title" style="justify-content:center;"><i class="fas fa-user-circle"></i>账号中心</div>
-
         <div class="user-profile" id="userProfile">
           <div class="avatar"><i class="fas fa-user"></i></div>
           <div class="user-email" id="profileEmail">user@example.com</div>
           <div class="user-qq" id="profileQQ">QQ: --</div>
           <button class="btn-logout" id="logoutBtn"><i class="fas fa-sign-out-alt"></i> 退出</button>
         </div>
-
         <div class="auth-tabs" id="authTabs">
           <button class="active" data-tab="login">登录</button>
           <button data-tab="register">注册</button>
         </div>
-
         <!-- 登录 -->
         <form class="auth-form active" id="loginForm">
           <div class="form-error" id="loginError"></div>
@@ -822,7 +815,6 @@ if (isset($_REQUEST['action'])) {
           <div class="input-group"><i class="fas fa-lock"></i><input type="password" id="loginPassword" placeholder="请输入密码" required /></div>
           <button type="submit" class="btn-primary">登录</button>
         </form>
-
         <!-- 注册 -->
         <form class="auth-form" id="registerForm">
           <div class="form-error" id="registerError"></div>
@@ -855,9 +847,8 @@ if (isset($_REQUEST['action'])) {
     (function() {
       'use strict';
 
-      // ========== API 调用层（真实后端） ==========
+      // ========== API 调用层 ==========
       const API = {
-        // 所有请求指向当前文件，通过 action 参数区分
         baseURL: window.location.pathname,
 
         async _request(action, data = null) {
@@ -865,36 +856,35 @@ if (isset($_REQUEST['action'])) {
             const options = {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                credentials: 'include', // 携带 session cookie
+                credentials: 'include',
                 body: data ? JSON.stringify(data) : undefined
             };
-            const res = await fetch(url, options);
-            const json = await res.json();
-            if (!res.ok) throw json;
-            return json;
+            try {
+                const res = await fetch(url, options);
+                const json = await res.json();
+                if (!res.ok) throw json;
+                return json;
+            } catch (e) {
+                // 如果响应不是 JSON，或者网络错误，构造一个标准错误
+                if (e instanceof SyntaxError) {
+                    throw { code: 50000, message: '服务器返回了非 JSON 格式的响应，请检查 PHP 错误日志' };
+                }
+                throw e;
+            }
         },
 
-        // 登录
         async login(username, password) {
             return this._request('login', { username, password });
         },
-
-        // 发送验证码
         async sendCode(email) {
             return this._request('send_code', { email });
         },
-
-        // 注册
         async register(params) {
             return this._request('register', params);
         },
-
-        // 获取当前用户
         async getCurrentUser() {
             return this._request('get_user');
         },
-
-        // 登出
         async logout() {
             return this._request('logout');
         }
@@ -933,7 +923,6 @@ if (isset($_REQUEST['action'])) {
         t._timer = setTimeout(() => t.classList.remove('show'), 3000);
       }
 
-      // ========== 用户状态管理 ==========
       let currentUser = null;
 
       function updateUIForUser(user) {
@@ -960,12 +949,10 @@ if (isset($_REQUEST['action'])) {
           $('#registerError').style.display = 'none';
           $('#registerSuccess').style.display = 'none';
         }
-        // 重新渲染考试列表和上传记录（根据登录状态）
         renderExams();
         renderSubmissions();
       }
 
-      // 初始化：获取当前用户
       async function initUser() {
         try {
           const res = await API.getCurrentUser();
@@ -975,6 +962,7 @@ if (isset($_REQUEST['action'])) {
             updateUIForUser(null);
           }
         } catch (e) {
+          console.warn('获取用户信息失败', e);
           updateUIForUser(null);
         }
       }
@@ -998,7 +986,7 @@ if (isset($_REQUEST['action'])) {
         });
       });
 
-      // ========== 登录 ==========
+      // 登录
       $('#loginForm').addEventListener('submit', async function(e) {
         e.preventDefault();
         const email = $('#loginEmail').value.trim();
@@ -1016,7 +1004,6 @@ if (isset($_REQUEST['action'])) {
             showToast('欢迎回来', 'success');
             $('#loginEmail').value = '';
             $('#loginPassword').value = '';
-            // 重新获取用户信息
             await initUser();
           } else {
             err.textContent = res.message || '登录失败';
@@ -1028,7 +1015,7 @@ if (isset($_REQUEST['action'])) {
         }
       });
 
-      // ========== 注册 ==========
+      // 注册
       $('#registerForm').addEventListener('submit', async function(e) {
         e.preventDefault();
         const email = $('#regEmail').value.trim();
@@ -1043,13 +1030,6 @@ if (isset($_REQUEST['action'])) {
         suc.style.display = 'none';
         if (!email || !code || !password || !realName || !inviteCode) {
           err.textContent = '请完整填写所有必填字段';
-          err.style.display = 'block';
-          return;
-        }
-        // 前端简单密码强度校验（后端也会校验）
-        const strong = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)|(?=.*[a-z])(?=.*[A-Z])(?=.*[^a-zA-Z0-9])|(?=.*[a-z])(?=.*\d)(?=.*[^a-zA-Z0-9])|(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9])/.test(password);
-        if (password.length < 8 || !strong) {
-          err.textContent = '密码至少8位，且包含大小写字母、数字、特殊字符中的至少三种';
           err.style.display = 'block';
           return;
         }
@@ -1076,7 +1056,7 @@ if (isset($_REQUEST['action'])) {
         }
       });
 
-      // ========== 发送验证码 ==========
+      // 发送验证码
       $('#sendCodeBtn').addEventListener('click', async function() {
         const email = $('#regEmail').value.trim();
         if (!email || !email.includes('@')) { showToast('请输入有效邮箱', 'error'); return; }
@@ -1093,7 +1073,7 @@ if (isset($_REQUEST['action'])) {
         }
       });
 
-      // ========== 退出 ==========
+      // 退出
       $('#logoutBtn').addEventListener('click', async function() {
         try {
           await API.logout();
@@ -1105,10 +1085,8 @@ if (isset($_REQUEST['action'])) {
         }
       });
 
-      // ========== 模拟考试列表和上传记录（暂用本地存储） ==========
-      // 注意：考试列表和上传记录仍使用 localStorage 模拟，后续可接入真实接口
-      async function renderExams() {
-        // 从 localStorage 读取考试列表（模拟）
+      // ========== 模拟考试和上传记录（临时） ==========
+      function renderExams() {
         let exams = JSON.parse(localStorage.getItem('gskchem_exams') || '[]');
         if (exams.length === 0) {
           exams = [
@@ -1118,7 +1096,6 @@ if (isset($_REQUEST['action'])) {
           ];
           localStorage.setItem('gskchem_exams', JSON.stringify(exams));
         }
-        // 只显示进行中的
         const inProgress = exams.filter(e => e.status === 'IN_PROGRESS');
         const container = $('#examList');
         if (inProgress.length === 0) {
@@ -1147,7 +1124,6 @@ if (isset($_REQUEST['action'])) {
           container.innerHTML = '<p style="color:#94a3b8;">请登录查看记录</p>';
           return;
         }
-        // 从 localStorage 读取上传记录（模拟）
         const all = JSON.parse(localStorage.getItem('gskchem_submissions') || '[]');
         const my = all.filter(s => s.userId === currentUser.id);
         if (my.length === 0) {
@@ -1212,7 +1188,6 @@ if (isset($_REQUEST['action'])) {
         status.style.color = '#d4a373';
         // 模拟上传
         setTimeout(() => {
-          // 保存到 localStorage
           const subs = JSON.parse(localStorage.getItem('gskchem_submissions') || '[]');
           const entry = {
             id: 'sub_' + Date.now(),
@@ -1238,12 +1213,11 @@ if (isset($_REQUEST['action'])) {
       // ========== 启动 ==========
       initUser();
 
-      // 点击外部关闭菜单
       document.addEventListener('click', (e) => {
         if (!e.target.closest('.navbar')) navList.classList.remove('open');
       });
 
-      console.log('GSKChem 平台已启动（完整版，连接数据库）');
+      console.log('GSKChem 平台已启动（修复版）');
     })();
   </script>
 </body>
