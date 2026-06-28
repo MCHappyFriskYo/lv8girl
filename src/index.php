@@ -1,6 +1,6 @@
 <?php
 /**
- * LunaticChO 前台 - 完整版（含 PDF 博物志）
+ * LunaticChO 前台 - 完整版（PDF 博物志，默认 200%，文件同目录）
  */
 
 error_reporting(E_ALL);
@@ -650,15 +650,6 @@ header('Content-Type: text/html; charset=utf-8');
       min-width: 80px;
       text-align: center;
     }
-    .pdf-controls .zoom-control {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    .pdf-controls .zoom-control input[type="range"] {
-      width: 100px;
-      accent-color: #0b3b4c;
-    }
     .pdf-loading {
       text-align: center;
       padding: 2rem;
@@ -1095,7 +1086,6 @@ header('Content-Type: text/html; charset=utf-8');
       .hero-logo { width: 72px; height: 72px; line-height: 72px; font-size: 2rem; }
       .pdf-viewer { min-height: 280px; }
       .exam-cards { grid-template-columns: 1fr; }
-      .pdf-controls { gap: 0.8rem; }
     }
     @media (max-width: 400px) {
       .pdf-viewer { min-height: 200px; }
@@ -1170,17 +1160,8 @@ header('Content-Type: text/html; charset=utf-8');
             <button id="pdfPrev"><i class="fas fa-chevron-left"></i> 上一页</button>
             <span class="page-info" id="pdfPageInfo">1 / 1</span>
             <button id="pdfNext">下一页 <i class="fas fa-chevron-right"></i></button>
-            <div class="zoom-control">
-              <button id="pdfZoomOut" title="缩小"><i class="fas fa-search-minus"></i></button>
-              <input type="range" id="pdfZoomRange" min="50" max="200" value="100">
-              <button id="pdfZoomIn" title="放大"><i class="fas fa-search-plus"></i></button>
-              <span id="pdfZoomLevel" style="font-size:0.85rem;color:#64748b;min-width:40px;">100%</span>
-            </div>
           </div>
         </div>
-        <p style="text-align:center;color:#94a3b8;font-size:0.9rem;margin-top:0.8rem;">
-          <i class="fas fa-info-circle"></i> 将您的 PDF 文件命名为 <code>yan_shi_bo_wu_zhi.pdf</code> 并放在 <code>uploads/</code> 目录下。
-        </p>
       </div>
     </section>
 
@@ -1253,21 +1234,18 @@ header('Content-Type: text/html; charset=utf-8');
       'use strict';
 
       // ========== PDF 阅读器逻辑 ==========
-      const PDF_URL = 'yan_shi_bo_wu_zhi.pdf';
+      const PDF_URL = 'yan_shi_bo_wu_zhi.pdf'; // 与 index.php 同目录
       let pdfDoc = null,
           pageNum = 1,
           pageRendering = false,
           pageNumPending = null,
-          scale = 1.0;
+          scale = 2.0; // 默认 200%
       const canvas = document.createElement('canvas');
       const viewer = document.getElementById('pdfViewer');
       const ctx = canvas.getContext('2d');
 
       viewer.innerHTML = '';
       viewer.appendChild(canvas);
-
-      const zoomRange = document.getElementById('pdfZoomRange');
-      const zoomLevel = document.getElementById('pdfZoomLevel');
 
       function renderPage(num) {
         pageRendering = true;
@@ -1308,7 +1286,6 @@ header('Content-Type: text/html; charset=utf-8');
           pdfDoc = pdf;
           pageNum = 1;
           renderPage(pageNum);
-          updateZoomDisplay();
         }).catch(function(err) {
           viewer.innerHTML = '<div style="text-align:center;padding:2rem;color:#b91c1c;"><i class="fas fa-exclamation-triangle" style="font-size:2.5rem;display:block;margin-bottom:0.5rem;"></i><p>无法加载 PDF 文件，请确保文件存在且路径正确。</p><p style="font-size:0.85rem;color:#94a3b8;">' + err.message + '</p></div>';
           console.error('PDF加载错误:', err);
@@ -1326,26 +1303,6 @@ header('Content-Type: text/html; charset=utf-8');
           pageNum++;
           queueRenderPage(pageNum);
         }
-      });
-
-      function updateZoomDisplay() {
-        zoomRange.value = Math.round(scale * 100);
-        zoomLevel.textContent = Math.round(scale * 100) + '%';
-      }
-      zoomRange.addEventListener('input', function() {
-        scale = this.value / 100;
-        if (pdfDoc) queueRenderPage(pageNum);
-        updateZoomDisplay();
-      });
-      document.getElementById('pdfZoomIn').addEventListener('click', function() {
-        scale = Math.min(2.0, scale + 0.1);
-        if (pdfDoc) queueRenderPage(pageNum);
-        updateZoomDisplay();
-      });
-      document.getElementById('pdfZoomOut').addEventListener('click', function() {
-        scale = Math.max(0.5, scale - 0.1);
-        if (pdfDoc) queueRenderPage(pageNum);
-        updateZoomDisplay();
       });
 
       loadPDF();
@@ -2073,9 +2030,6 @@ header('Content-Type: text/html; charset=utf-8');
         }
       };
 
-      // ========== 翻页书（已废弃，但保留空函数） ==========
-      // 无
-
       // ========== 启动 ==========
       initUser();
 
@@ -2083,7 +2037,7 @@ header('Content-Type: text/html; charset=utf-8');
         if (!e.target.closest('.navbar')) navList.classList.remove('open');
       });
 
-      console.log('LunaticChO 前台启动完成（完整版 + PDF 博物志）');
+      console.log('LunaticChO 前台启动完成（PDF 默认 200%，文件同目录）');
     })();
   </script>
 </body>
