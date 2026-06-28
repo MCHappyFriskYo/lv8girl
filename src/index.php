@@ -1,7 +1,7 @@
 <?php
 /**
- * GSKChem 联考平台 - 博物志翻页书图片版
- * 图片文件：01.jpg ~ 08.jpg，放置于 index.php 同级目录
+ * GSKChem 联考平台 - 博物志翻页书纯图片版
+ * 图片命名：01.jpg ~ 08.jpg，放在 index.php 同级目录
  */
 
 // 关闭错误显示，但记录到日志
@@ -196,7 +196,7 @@ header('Content-Type: text/html; charset=utf-8');
   <title>GSKChem · 联考平台</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <style>
-    /* ===== 样式（与之前完全一致，这里简写，实际使用时完整复制） ===== */
+    /* ===== 基础样式（与之前相同） ===== */
     * { margin:0; padding:0; box-sizing:border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -352,6 +352,8 @@ header('Content-Type: text/html; charset=utf-8');
     }
     .exam-empty i { font-size: 4rem; color: #d4a373; margin-bottom: 1rem; display: block; }
     .exam-empty h3 { font-size: 1.5rem; color: #0b3b4c; margin-bottom: 0.5rem; }
+
+    /* ===== 博物志翻页书 - 纯图片版 ===== */
     .book-container {
       position: relative;
       max-width: 700px;
@@ -359,18 +361,19 @@ header('Content-Type: text/html; charset=utf-8');
       background: #ffffff;
       border-radius: 16px;
       box-shadow: 0 8px 30px rgba(0,0,0,0.10);
-      padding: 2rem 1.5rem;
+      padding: 0; /* 去掉内边距，让图片占满 */
       min-height: 400px;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       border: 1px solid #e9edf2;
+      overflow: hidden;
     }
     .book-pages {
       position: relative;
       width: 100%;
-      height: 350px;
+      height: 450px; /* 固定高度，根据图片比例可调整 */
       overflow: hidden;
     }
     .book-page {
@@ -380,46 +383,34 @@ header('Content-Type: text/html; charset=utf-8');
       width: 100%;
       height: 100%;
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 1.5rem;
-      background: #ffffff;
-      border-radius: 12px;
+      background: #f8fafc;
       opacity: 0;
       transform: translateX(30px) scale(0.95);
       transition: all 0.5s cubic-bezier(0.23, 1, 0.32, 1);
       pointer-events: none;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
     }
     .book-page.active {
       opacity: 1;
       transform: translateX(0) scale(1);
       pointer-events: auto;
     }
-    .book-page.exit { opacity: 0; transform: translateX(-30px) scale(0.95); }
-    .book-page .page-icon { font-size: 3.5rem; color: #0b3b4c; margin-bottom: 0.8rem; }
-    .book-page .page-title { font-size: 1.6rem; font-weight: 700; color: #0b3b4c; margin-bottom: 0.3rem; }
-    .book-page .page-desc { color: #475569; text-align: center; max-width: 400px; font-size: 0.95rem; }
-    .book-page .page-img {
-      width: 120px;
-      height: 120px;
-      border-radius: 50%;
-      background: #f0f4f8;
-      border: 2px solid #d4a373;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 0.8rem;
-      font-size: 3rem;
-      color: #94a3b8;
-      overflow: hidden;
+    .book-page.exit {
+      opacity: 0;
+      transform: translateX(-30px) scale(0.95);
     }
-    .book-page .page-img img { width: 100%; height: 100%; object-fit: cover; }
+    .book-page img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain; /* 保持图片比例，完整显示 */
+      background: #ffffff;
+      border-radius: 0;
+    }
     .book-controls {
       display: flex;
       gap: 2rem;
-      margin-top: 1.5rem;
+      margin: 1rem 0 1.2rem;
       align-items: center;
     }
     .book-controls button {
@@ -438,7 +429,15 @@ header('Content-Type: text/html; charset=utf-8');
     }
     .book-controls button:hover { background: #0a2f3d; transform: scale(1.05); }
     .book-controls button:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
-    .book-controls .page-indicator { font-weight: 600; color: #0b3b4c; font-size: 1rem; min-width: 80px; text-align: center; }
+    .book-controls .page-indicator {
+      font-weight: 600;
+      color: #0b3b4c;
+      font-size: 1rem;
+      min-width: 80px;
+      text-align: center;
+    }
+
+    /* ===== 周常样式（与之前相同） ===== */
     .weekly-list {
       display: flex;
       flex-direction: column;
@@ -470,6 +469,8 @@ header('Content-Type: text/html; charset=utf-8');
     }
     .weekly-item .answer-btn:hover { background: #0a2f3d; }
     .weekly-item .feedback { margin-top: 0.5rem; font-weight: 500; font-size: 0.9rem; }
+
+    /* ===== 账号样式（与之前相同） ===== */
     .auth-tabs {
       display: flex;
       border-bottom: 2px solid #e9edf2;
@@ -586,12 +587,13 @@ header('Content-Type: text/html; charset=utf-8');
     .toast.show { opacity: 1; transform: translateY(0); }
     .toast.success { background: #0b6b4c; }
     .toast.error { background: #b91c1c; }
+
+    /* ===== 响应式 ===== */
     @media (max-width: 820px) {
       .navbar { padding: 0 1.5rem; }
       .features-grid { grid-template-columns: 1fr 1fr; }
       .hero-logo { width: 80px; height: 80px; line-height: 80px; font-size: 2.2rem; }
-      .book-container { padding: 1.5rem 1rem; min-height: 350px; }
-      .book-pages { height: 300px; }
+      .book-pages { height: 350px; }
     }
     @media (max-width: 640px) {
       .hamburger { display: flex; }
@@ -617,13 +619,13 @@ header('Content-Type: text/html; charset=utf-8');
       .hero { padding: 1.8rem 1.2rem; }
       .hero h1 { font-size: 2rem; }
       .hero-logo { width: 72px; height: 72px; line-height: 72px; font-size: 2rem; }
-      .book-container { padding: 1rem; min-height: 300px; }
-      .book-pages { height: 260px; }
-      .book-page .page-title { font-size: 1.3rem; }
-      .book-page .page-icon { font-size: 2.8rem; }
+      .book-container { min-height: 300px; }
+      .book-pages { height: 280px; }
       .book-controls button { width: 40px; height: 40px; font-size: 1.2rem; }
     }
-    @media (max-width: 400px) { .book-page .page-img { width: 80px; height: 80px; } }
+    @media (max-width: 400px) {
+      .book-pages { height: 220px; }
+    }
   </style>
 </head>
 <body>
@@ -674,68 +676,21 @@ header('Content-Type: text/html; charset=utf-8');
       </div>
     </section>
 
-    <!-- ===== 博物志翻页书（图片版） ===== -->
+    <!-- 博物志翻页书 - 纯图片 -->
     <section class="page" id="page-museum">
       <div class="card">
         <div class="card-title"><i class="fas fa-book-open"></i>燕石博物志</div>
         <div class="book-container">
           <div class="book-pages" id="bookPages">
-            <!-- 第1页：01.jpg -->
-            <div class="book-page active" data-index="0">
-              <div class="page-img"><img src="01.jpg" alt="元素周期表"></div>
-              <div class="page-icon"><i class="fas fa-atom"></i></div>
-              <div class="page-title">元素周期表</div>
-              <div class="page-desc">118种元素的规律与奥秘，从氢到Og。</div>
-            </div>
-            <!-- 第2页：02.jpg -->
-            <div class="book-page" data-index="1">
-              <div class="page-img"><img src="02.jpg" alt="分子结构"></div>
-              <div class="page-icon"><i class="fas fa-bezier-curve"></i></div>
-              <div class="page-title">分子结构</div>
-              <div class="page-desc">三维空间中的化学键与分子构型。</div>
-            </div>
-            <!-- 第3页：03.jpg -->
-            <div class="book-page" data-index="2">
-              <div class="page-img"><img src="03.jpg" alt="化学反应"></div>
-              <div class="page-icon"><i class="fas fa-fire"></i></div>
-              <div class="page-title">化学反应</div>
-              <div class="page-desc">燃烧、置换、催化……万千变化。</div>
-            </div>
-            <!-- 第4页：04.jpg -->
-            <div class="book-page" data-index="3">
-              <div class="page-img"><img src="04.jpg" alt="实验仪器"></div>
-              <div class="page-icon"><i class="fas fa-flask"></i></div>
-              <div class="page-title">实验仪器</div>
-              <div class="page-desc">烧杯、试管、酒精灯——实验室的基石。</div>
-            </div>
-            <!-- 第5页：05.jpg -->
-            <div class="book-page" data-index="4">
-              <div class="page-img"><img src="05.jpg" alt="生物化学"></div>
-              <div class="page-icon"><i class="fas fa-dna"></i></div>
-              <div class="page-title">生物化学</div>
-              <div class="page-desc">生命体中的化学反应与代谢途径。</div>
-            </div>
-            <!-- 第6页：06.jpg -->
-            <div class="book-page" data-index="5">
-              <div class="page-img"><img src="06.jpg" alt="材料科学"></div>
-              <div class="page-icon"><i class="fas fa-microscope"></i></div>
-              <div class="page-title">材料科学</div>
-              <div class="page-desc">从纳米材料到高分子，化学构筑世界。</div>
-            </div>
-            <!-- 第7页：07.jpg -->
-            <div class="book-page" data-index="6">
-              <div class="page-img"><img src="07.jpg" alt="化学史"></div>
-              <div class="page-icon"><i class="fas fa-history"></i></div>
-              <div class="page-title">化学史</div>
-              <div class="page-desc">从炼金术到现代化学的璀璨历程。</div>
-            </div>
-            <!-- 第8页：08.jpg -->
-            <div class="book-page" data-index="7">
-              <div class="page-img"><img src="08.jpg" alt="诺贝尔化学奖"></div>
-              <div class="page-icon"><i class="fas fa-trophy"></i></div>
-              <div class="page-title">诺贝尔化学奖</div>
-              <div class="page-desc">那些改变世界的化学发现与人物。</div>
-            </div>
+            <!-- 循环生成8页，每页一张图片，图片名 01.jpg ~ 08.jpg -->
+            <div class="book-page active" data-index="0"><img src="01.jpg" alt="博物志 01"></div>
+            <div class="book-page" data-index="1"><img src="02.jpg" alt="博物志 02"></div>
+            <div class="book-page" data-index="2"><img src="03.jpg" alt="博物志 03"></div>
+            <div class="book-page" data-index="3"><img src="04.jpg" alt="博物志 04"></div>
+            <div class="book-page" data-index="4"><img src="05.jpg" alt="博物志 05"></div>
+            <div class="book-page" data-index="5"><img src="06.jpg" alt="博物志 06"></div>
+            <div class="book-page" data-index="6"><img src="07.jpg" alt="博物志 07"></div>
+            <div class="book-page" data-index="7"><img src="08.jpg" alt="博物志 08"></div>
           </div>
           <div class="book-controls">
             <button id="prevPage" disabled><i class="fas fa-chevron-left"></i></button>
@@ -744,7 +699,7 @@ header('Content-Type: text/html; charset=utf-8');
           </div>
         </div>
         <p style="text-align:center;color:#94a3b8;font-size:0.9rem;margin-top:0.8rem;">
-          <i class="fas fa-info-circle"></i> 图片文件（01.jpg ~ 08.jpg）请放置在网站根目录，与 index.php 同级。
+          <i class="fas fa-info-circle"></i> 将您的图片命名为 01.jpg ~ 08.jpg 放在本文件同目录下。
         </p>
       </div>
     </section>
@@ -1111,7 +1066,7 @@ header('Content-Type: text/html; charset=utf-8');
         if (!e.target.closest('.navbar')) navList.classList.remove('open');
       });
 
-      console.log('GSKChem 平台已启动（博物志图片版）');
+      console.log('GSKChem 平台已启动（博物志纯图片版）');
     })();
   </script>
 </body>
