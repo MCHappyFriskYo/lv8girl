@@ -1,7 +1,7 @@
 <?php
 /**
- * LunaticCho 前台
- * 支持用户名注册、头像上传、周常卡片、后台入口
+ * LunaticCho 前台 - 完整版
+ * 支持考试作答、排行榜、头像上传、后台入口
  */
 
 error_reporting(E_ALL);
@@ -212,14 +212,116 @@ if (isset($_REQUEST['action'])) {
             exit;
         }
 
-        // ---------- 获取周常 ----------
-        if ($action === 'get_weekly') {
-            $stmt = $pdo->query("SELECT id, title, content, options, answer, teacher, created_at FROM gsk_weekly WHERE status = 1 ORDER BY created_at DESC");
-            $items = $stmt->fetchAll();
-            foreach ($items as &$item) {
-                $item['options'] = json_decode($item['options'], true);
+        // ---------- 获取已发布的考试列表 ----------
+        if ($action === 'get_exams') {
+            $stmt = $pdo->query("SELECT * FROM gsk_exams WHERE status = 'published' ORDER BY published_at DESC");
+            $exams = $stmt->fetchAll();
+            foreach ($exams as &$exam) {
+                $stmt2 = $pdo->prepare("SELECT COUNT(*) as qcount FROM gsk_questions WHERE exam_id = ?");
+                $stmt2->execute([$exam['id']]);
+                $exam['question_count'] = $stmt2->fetch()['qcount'];
+                
+                $stmt2 = $pdo->prepare("SELECT SUM(score) as total FROM gsk_questions WHERE exam_id = ?");
+                $stmt2->execute([$exam['id']]);
+                $exam['total_score'] = $stmt2->fetch()['total'] ?? 0;
             }
-            echo json_encode(['code' => 0, 'data' => $items]);
+            echo json_encode(['code' => 0, 'data' => $exams]);
+            exit;
+        }
+
+        // ---------- 获取考试题目 ----------
+        if ($action === 'get_exam_questions') {
+            $exam_id = intval($_GET['exam_id'] ?? 0);
+            if (!$exam_id) {
+                echo json_encode(['code' => 40001, 'message' => '缺少考试ID']);
+                exit;
+            }
+            $stmt = $pdo->prepare("SELECT * FROM gsk_questions WHERE exam_id = ? ORDER BY sort_order, id");
+            $stmt->execute([$exam_id]);
+            $questions = $stmt->fetchAll();
+            // 获取考试信息
+            $stmt2 = $pdo->prepare("SELECT title, description FROM gsk_exams WHERE id = ?");
+            $stmt2->execute([$exam_id]);
+            $exam = $stmt2->fetch();
+            echo json_encode(['code' => 0, 'data' => ['exam' => $exam, 'questions' => $questions]]);
+            exit;
+        }
+
+        // ---------- 提交答案 ----------
+        if ($action === 'submit_answers') {
+            if (!isset($_SESSION['user_id'])) {
+                echo json_encode(['code' => 40100, 'message' => '请先登录']);
+                exit;
+            }
+            $input = json_decode(file_get_contents('php://input'), true);
+            $exam_id = $input['exam_id'];
+            $answers = $input['answers'];
+            $user_id = $_SESSION['user_id'];
+            
+            $pdo->beginTransaction();
+            try {
+                foreach ($answers as $qid => $answer) {
+                    if (empty($answer)) continue;
+                    $stmt = $pdo->prepare("INSERT INTO gsk_answers (exam_id, question_id, user_id, answer, status) VALUES (?, ?, ?, ?, 'pending') ON DUPLICATE KEY UPDATE answer = VALUES(answer), status = 'pending', score = NULL");
+                    $stmt->execute([$exam_id, $qid, $user_id, $answer]);
+                }
+                $pdo->commit();
+                echo json_encode(['code' => 0, 'message' => '答案提交成功！']);
+            } catch (Exception $e) {
+                $pdo->rollBack();
+                echo json_encode(['code' => 50000, 'message' => '提交失败：' . $e->getMessage()]);
+            }
+            exit;
+        }
+
+        // ---------- 获取考试成绩和排行榜 ----------
+        if ($action === 'get_ranking') {
+            $exam_id = intval($_GET['exam_id'] ?? 0);
+            if (!$exam_id) {
+                echo json_encode(['code' => 40001, 'message' => '缺少考试ID']);
+                exit;
+            }
+            // 获取排行榜
+            $stmt = $pdo->prepare("SELECT u.username, u.avatar, r.total_score, r.status 
+                                   FROM gsk_results r 
+                                   JOIN gsk_users u ON r.user_id = u.id 
+                                   WHERE r.exam_id = ? AND r.status = 'graded' 
+                                   ORDER BY r.total_score DESC");
+            $stmt->execute([$exam_id]);
+            $ranking = $stmt->fetchAll();
+            
+            // 获取考试信息
+            $stmt2 = $pdo->prepare("SELECT title FROM gsk_exams WHERE id = ?");
+            $stmt2->execute([$exam_id]);
+            $exam = $stmt2->fetch();
+            
+            // 当前用户成绩
+            $myScore = null;
+            if (isset($_SESSION['user_id'])) {
+                $stmt = $pdo->prepare("SELECT total_score, status FROM gsk_results WHERE exam_id = ? AND user_id = ?");
+                $stmt->execute([$exam_id, $_SESSION['user_id']]);
+                $myScore = $stmt->fetch();
+            }
+            
+            echo json_encode(['code' => 0, 'data' => ['exam' => $exam, 'ranking' => $ranking, 'myScore' => $myScore]]);
+            exit;
+        }
+
+        // ---------- 检查用户是否已作答 ----------
+        if ($action === 'check_answered') {
+            if (!isset($_SESSION['user_id'])) {
+                echo json_encode(['code' => 40100, 'message' => '未登录']);
+                exit;
+            }
+            $exam_id = intval($_GET['exam_id'] ?? 0);
+            if (!$exam_id) {
+                echo json_encode(['code' => 40001, 'message' => '缺少考试ID']);
+                exit;
+            }
+            $stmt = $pdo->prepare("SELECT COUNT(*) as cnt FROM gsk_answers WHERE exam_id = ? AND user_id = ?");
+            $stmt->execute([$exam_id, $_SESSION['user_id']]);
+            $cnt = $stmt->fetch()['cnt'];
+            echo json_encode(['code' => 0, 'data' => ['answered' => $cnt > 0]]);
             exit;
         }
 
@@ -486,56 +588,170 @@ header('Content-Type: text/html; charset=utf-8');
       text-align: center;
     }
 
-    /* ===== 周常卡片 ===== */
-    .weekly-cards {
+    /* ===== 周常 - 考试列表 ===== */
+    .exam-cards {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
       gap: 1.2rem;
       margin-top: 1rem;
     }
-    .weekly-card {
+    .exam-card-item {
       background: #f8fafc;
-      border-radius: 8px;
+      border-radius: 10px;
       padding: 1.2rem 1.5rem;
       border-left: 4px solid #d4a373;
       cursor: pointer;
-      transition: background 0.15s;
+      transition: background 0.15s, transform 0.15s;
       box-shadow: 0 2px 6px rgba(0,0,0,0.04);
     }
-    .weekly-card:hover { background: #f1f5f9; }
-    .weekly-card .meta {
+    .exam-card-item:hover { background: #f1f5f9; transform: translateY(-2px); }
+    .exam-card-item .title { font-size: 1.1rem; font-weight: 600; color: #0b3b4c; }
+    .exam-card-item .meta {
       display: flex;
       justify-content: space-between;
       font-size: 0.85rem;
       color: #64748b;
       margin-top: 0.3rem;
     }
-    .weekly-card .title {
-      font-size: 1.1rem;
+    .exam-card-item .badge-status {
+      display: inline-block;
+      padding: 0.1rem 0.6rem;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: #d1fae5;
+      color: #0b6b4c;
+    }
+
+    /* ===== 答题模式 ===== */
+    .exam-container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .exam-header {
+      text-align: center;
+      padding-bottom: 1rem;
+      border-bottom: 2px solid #e9edf2;
+      margin-bottom: 1.5rem;
+    }
+    .exam-header h2 { color: #0b3b4c; font-size: 1.8rem; }
+    .exam-header p { color: #64748b; }
+    .question-item {
+      background: #f8fafc;
+      padding: 1.2rem 1.5rem;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+      border: 1px solid #e9edf2;
+    }
+    .question-item .q-header {
+      display: flex;
+      justify-content: space-between;
       font-weight: 600;
       color: #0b3b4c;
+      margin-bottom: 0.5rem;
     }
-    .weekly-detail {
-      display: none;
-      margin-top: 0.8rem;
-      padding-top: 0.8rem;
-      border-top: 1px solid #e2e8f0;
+    .question-item .q-type {
+      font-weight: 400;
+      font-size: 0.8rem;
+      padding: 0.1rem 0.6rem;
+      border-radius: 12px;
+      background: #dbeafe;
+      color: #1d4ed8;
     }
-    .weekly-detail.open { display: block; }
-    .weekly-detail .content { color: #1e293b; margin-bottom: 0.6rem; }
-    .weekly-detail .options { display: flex; flex-direction: column; gap: 0.3rem; }
-    .weekly-detail .options label { display: flex; align-items: center; gap: 0.6rem; font-size: 0.9rem; }
-    .weekly-detail .answer-btn {
-      margin-top: 0.6rem;
+    .question-item .q-content { margin-bottom: 0.8rem; color: #1e293b; }
+    .question-item .q-options label {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.3rem 0;
+      cursor: pointer;
+    }
+    .question-item .q-options input[type="radio"],
+    .question-item .q-options input[type="checkbox"] {
+      accent-color: #0b3b4c;
+      width: 16px;
+      height: 16px;
+    }
+    .question-item .q-options textarea {
+      width: 100%;
+      padding: 0.5rem;
+      border: 1px solid #d1d9e6;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      min-height: 60px;
+      font-family: inherit;
+    }
+    .question-item .q-options input[type="text"] {
+      width: 100%;
+      padding: 0.5rem;
+      border: 1px solid #d1d9e6;
+      border-radius: 6px;
+      font-size: 0.95rem;
+    }
+    .btn-submit-exam {
+      width: 100%;
+      padding: 0.8rem;
       background: #0b3b4c;
       color: #fff;
       border: none;
-      padding: 0.2rem 1.2rem;
-      border-radius: 20px;
-      font-size: 0.85rem;
+      border-radius: 8px;
+      font-size: 1.1rem;
+      font-weight: 600;
       cursor: pointer;
+      transition: background 0.15s;
     }
-    .weekly-detail .feedback { margin-top: 0.4rem; font-weight: 500; font-size: 0.9rem; }
+    .btn-submit-exam:hover { background: #0a2f3d; }
+    .btn-submit-exam:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    /* ===== 排行榜 ===== */
+    .ranking-container {
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    .ranking-item {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid #e9edf2;
+    }
+    .ranking-item .rank {
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: #0b3b4c;
+      width: 40px;
+      text-align: center;
+    }
+    .ranking-item .rank.gold { color: #f59e0b; }
+    .ranking-item .rank.silver { color: #94a3b8; }
+    .ranking-item .rank.bronze { color: #d97706; }
+    .ranking-item .avatar-small {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: #dbeafe;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .ranking-item .avatar-small img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .ranking-item .name { flex: 1; font-weight: 500; }
+    .ranking-item .score { font-weight: 700; color: #0b3b4c; }
+    .my-score {
+      background: #fef3c7;
+      padding: 1rem;
+      border-radius: 8px;
+      text-align: center;
+      margin-top: 1rem;
+      border: 2px solid #f59e0b;
+    }
+    .my-score .big-score { font-size: 2rem; font-weight: 700; color: #0b3b4c; }
 
     /* ===== 账号 ===== */
     .auth-tabs {
@@ -753,7 +969,7 @@ header('Content-Type: text/html; charset=utf-8');
       .book-container { min-height: 300px; }
       .book-pages { height: 280px; }
       .book-controls button { width: 40px; height: 40px; font-size: 1.2rem; }
-      .weekly-cards { grid-template-columns: 1fr; }
+      .exam-cards { grid-template-columns: 1fr; }
     }
     @media (max-width: 400px) {
       .book-pages { height: 220px; }
@@ -841,7 +1057,7 @@ header('Content-Type: text/html; charset=utf-8');
       <div class="card">
         <div class="card-title"><i class="fas fa-calendar-week"></i>周常 · 化学挑战</div>
         <div id="weeklyContainer">
-          <div class="weekly-cards" id="weeklyCards"></div>
+          <!-- 由 JavaScript 动态渲染 -->
         </div>
       </div>
     </section>
@@ -908,15 +1124,23 @@ header('Content-Type: text/html; charset=utf-8');
       const API = {
         baseURL: window.location.pathname,
 
-        async _request(action, data = null) {
+        async _request(action, data = null, method = 'POST') {
             const url = this.baseURL + '?action=' + action;
             const options = {
-                method: 'POST',
+                method: method,
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
                 body: data ? JSON.stringify(data) : undefined
             };
             const res = await fetch(url, options);
+            const json = await res.json();
+            if (!res.ok) throw json;
+            return json;
+        },
+
+        async _get(action, params = {}) {
+            const url = this.baseURL + '?action=' + action + '&' + new URLSearchParams(params);
+            const res = await fetch(url, { credentials: 'include' });
             const json = await res.json();
             if (!res.ok) throw json;
             return json;
@@ -929,16 +1153,28 @@ header('Content-Type: text/html; charset=utf-8');
             return this._request('register', { username, email, password, qq });
         },
         async getCurrentUser() {
-            return this._request('get_user');
+            return this._request('get_user', null, 'GET');
         },
         async logout() {
             return this._request('logout');
         },
-        async getWeekly() {
-            return this._request('get_weekly');
-        },
         async updateAvatar(avatar) {
             return this._request('update_avatar', { avatar });
+        },
+        async getExams() {
+            return this._get('get_exams');
+        },
+        async getExamQuestions(exam_id) {
+            return this._get('get_exam_questions', { exam_id });
+        },
+        async submitAnswers(exam_id, answers) {
+            return this._request('submit_answers', { exam_id, answers });
+        },
+        async getRanking(exam_id) {
+            return this._get('get_ranking', { exam_id });
+        },
+        async checkAnswered(exam_id) {
+            return this._get('check_answered', { exam_id });
         }
       };
 
@@ -976,6 +1212,8 @@ header('Content-Type: text/html; charset=utf-8');
       }
 
       let currentUser = null;
+      let currentExamId = null;
+      let examQuestions = [];
 
       // ========== 头像上传 ==========
       function handleAvatarUpload(file) {
@@ -996,7 +1234,6 @@ header('Content-Type: text/html; charset=utf-8');
             const res = await API.updateAvatar(base64);
             if (res.code === 0) {
               showToast('头像更新成功', 'success');
-              // 更新显示
               const img = $('#avatarImg');
               const placeholder = $('#avatarPlaceholder');
               img.src = base64;
@@ -1030,11 +1267,9 @@ header('Content-Type: text/html; charset=utf-8');
           $('#profileEmail').textContent = user.username + ' (' + user.email + ')';
           $('#profileQQ').textContent = 'QQ: ' + (user.qq || '未设置');
 
-          // 角色显示
           const roleMap = { 'ADMIN': '管理员', 'TEACHER': '教师', 'MARKER': '学生' };
           roleLabel.textContent = roleMap[user.role] || user.role;
 
-          // 头像
           const img = $('#avatarImg');
           const placeholder = $('#avatarPlaceholder');
           if (user.avatar) {
@@ -1046,7 +1281,6 @@ header('Content-Type: text/html; charset=utf-8');
             placeholder.style.display = 'flex';
           }
 
-          // 后台按钮：teacher/admin 可见
           if (user.role === 'ADMIN' || user.role === 'TEACHER') {
             adminBtn.style.display = 'inline-block';
           } else {
@@ -1066,7 +1300,7 @@ header('Content-Type: text/html; charset=utf-8');
           $('#registerSuccess').style.display = 'none';
           adminBtn.style.display = 'none';
         }
-        loadWeekly();
+        renderWeekly();
       }
 
       async function initUser() {
@@ -1200,77 +1434,201 @@ header('Content-Type: text/html; charset=utf-8');
         this.value = '';
       });
 
-      // ========== 周常加载 ==========
-      async function loadWeekly() {
-        const container = $('#weeklyCards');
+      // ========== 周常 - 考试列表 ==========
+      async function renderWeekly() {
+        const container = $('#weeklyContainer');
         try {
-          const res = await API.getWeekly();
+          const res = await API.getExams();
           if (res.code === 0 && res.data.length > 0) {
-            let html = '';
-            res.data.forEach((item) => {
-              const optionsHtml = item.options.map((opt, i) => {
-                const letter = String.fromCharCode(65 + i);
-                return `<label><input type="radio" name="q_${item.id}" value="${letter}"> ${opt}</label>`;
-              }).join('');
+            let html = '<div class="exam-cards">';
+            res.data.forEach(exam => {
               html += `
-                <div class="weekly-card" data-id="${item.id}">
-                  <div class="title">📅 ${item.title}</div>
+                <div class="exam-card-item" onclick="window.LunaticCho.startExam(${exam.id})">
+                  <div class="title">📝 ${exam.title}</div>
                   <div class="meta">
-                    <span>👩‍🏫 ${item.teacher}</span>
-                    <span>📅 ${new Date(item.created_at).toLocaleDateString()}</span>
+                    <span>👩‍🏫 ${exam.teacher}</span>
+                    <span>📅 ${new Date(exam.published_at).toLocaleDateString()}</span>
                   </div>
-                  <div class="weekly-detail">
-                    <div class="content">${item.content}</div>
-                    <div class="options">${optionsHtml}</div>
-                    <button class="answer-btn" data-id="${item.id}" data-answer="${item.answer}">查看答案</button>
-                    <div class="feedback" id="feedback_${item.id}"></div>
+                  <div style="margin-top:0.5rem; font-size:0.85rem; color:#64748b;">
+                    ${exam.question_count} 题 · 总分 ${exam.total_score}
+                    <span class="badge-status">已发布</span>
                   </div>
                 </div>
               `;
             });
+            html += '</div>';
             container.innerHTML = html;
-
-            container.querySelectorAll('.weekly-card').forEach(card => {
-              const detail = card.querySelector('.weekly-detail');
-              card.addEventListener('click', function(e) {
-                if (e.target.closest('.answer-btn') || e.target.closest('input')) return;
-                const isOpen = detail.classList.contains('open');
-                container.querySelectorAll('.weekly-detail').forEach(d => d.classList.remove('open'));
-                if (!isOpen) {
-                  detail.classList.add('open');
-                }
-              });
-            });
-
-            container.querySelectorAll('.answer-btn').forEach(btn => {
-              btn.addEventListener('click', function(e) {
-                e.stopPropagation();
-                const id = this.dataset.id;
-                const correct = this.dataset.answer;
-                const feedback = document.getElementById('feedback_' + id);
-                const selected = document.querySelector(`input[name="q_${id}"]:checked`);
-                if (!selected) {
-                  feedback.textContent = '请先选择一个选项';
-                  feedback.style.color = '#d4a373';
-                  return;
-                }
-                const userAnswer = selected.value;
-                if (userAnswer === correct) {
-                  feedback.textContent = '✅ 回答正确！';
-                  feedback.style.color = '#0b6b4c';
-                } else {
-                  feedback.textContent = '❌ 回答错误，正确答案是 ' + correct;
-                  feedback.style.color = '#b91c1c';
-                }
-              });
-            });
           } else {
-            container.innerHTML = '<p style="color:#94a3b8; text-align:center; padding:1rem 0;">暂无周常题目，请关注后续更新。</p>';
+            container.innerHTML = '<p style="color:#94a3b8; text-align:center; padding:1rem 0;">暂无已发布的考试，请关注后续更新。</p>';
           }
         } catch (e) {
           container.innerHTML = '<p style="color:#b91c1c;">加载失败，请稍后重试。</p>';
         }
       }
+
+      // ========== 开始考试 ==========
+      window.LunaticCho = {
+        startExam: async function(examId) {
+          if (!currentUser) {
+            showToast('请先登录后再答题', 'error');
+            setActivePage('account');
+            return;
+          }
+          currentExamId = examId;
+          try {
+            const res = await API.getExamQuestions(examId);
+            if (res.code === 0) {
+              examQuestions = res.data.questions;
+              const exam = res.data.exam;
+              renderExam(exam, examQuestions);
+              setActivePage('weekly'); // 留在周常页，但替换内容
+            }
+          } catch (e) {
+            showToast('加载题目失败', 'error');
+          }
+        }
+      };
+
+      function renderExam(exam, questions) {
+        const container = $('#weeklyContainer');
+        let html = `
+          <div class="exam-container">
+            <div class="exam-header">
+              <h2>${exam.title}</h2>
+              <p>${exam.description || ''}</p>
+              <p style="font-size:0.85rem; color:#94a3b8;">共 ${questions.length} 题，总分 ${questions.reduce((s, q) => s + q.score, 0)} 分</p>
+              <button onclick="window.LunaticCho.backToExams()" style="background:none; border:none; color:#2563eb; cursor:pointer; font-size:0.9rem;">← 返回考试列表</button>
+            </div>
+            <form id="examForm">
+        `;
+        questions.forEach((q, idx) => {
+          const qNum = idx + 1;
+          const typeMap = { 'single': '单选题', 'multiple': '多选题', 'fill': '填空题', 'essay': '解答题' };
+          html += `
+            <div class="question-item">
+              <div class="q-header">
+                <span>第 ${qNum} 题 <span class="q-type">${typeMap[q.type] || q.type}</span></span>
+                <span>${q.score} 分</span>
+              </div>
+              <div class="q-content">${q.content}</div>
+              <div class="q-options">
+          `;
+          if (q.type === 'single') {
+            const opts = JSON.parse(q.options || '[]');
+            opts.forEach((opt, oi) => {
+              const letter = String.fromCharCode(65 + oi);
+              html += `<label><input type="radio" name="q_${q.id}" value="${letter}"> ${opt}</label>`;
+            });
+          } else if (q.type === 'multiple') {
+            const opts = JSON.parse(q.options || '[]');
+            opts.forEach((opt, oi) => {
+              const letter = String.fromCharCode(65 + oi);
+              html += `<label><input type="checkbox" name="q_${q.id}" value="${letter}"> ${opt}</label>`;
+            });
+          } else if (q.type === 'fill') {
+            html += `<input type="text" name="q_${q.id}" placeholder="请输入答案" style="width:100%; padding:0.5rem; border:1px solid #d1d9e6; border-radius:6px;">`;
+          } else { // essay
+            html += `<textarea name="q_${q.id}" placeholder="请输入你的解答" rows="4"></textarea>`;
+          }
+          html += `</div></div>`;
+        });
+        html += `
+              <button type="submit" class="btn-submit-exam">提交答案</button>
+            </form>
+            <div id="examResult" style="margin-top:1rem;"></div>
+          </div>
+        `;
+        container.innerHTML = html;
+
+        // 提交答案
+        document.getElementById('examForm').addEventListener('submit', async function(e) {
+          e.preventDefault();
+          const formData = new FormData(this);
+          const answers = {};
+          for (let [key, value] of formData.entries()) {
+            const qid = parseInt(key.replace('q_', ''));
+            if (value.trim()) {
+              if (answers[qid]) {
+                answers[qid] += ',' + value.trim();
+              } else {
+                answers[qid] = value.trim();
+              }
+            }
+          }
+          try {
+            const res = await API.submitAnswers(currentExamId, answers);
+            if (res.code === 0) {
+              document.getElementById('examResult').innerHTML = `
+                <div style="background:#d1fae5; padding:1rem; border-radius:8px; text-align:center; color:#0b6b4c;">
+                  <i class="fas fa-check-circle" style="font-size:2rem; display:block; margin-bottom:0.5rem;"></i>
+                  ${res.message}
+                  <br><br>
+                  <button onclick="window.LunaticCho.viewRanking(${currentExamId})" class="btn" style="background:#0b3b4c; color:#fff; border:none; padding:0.5rem 1.5rem; border-radius:20px; cursor:pointer;">
+                    查看排行榜
+                  </button>
+                </div>
+              `;
+            } else {
+              showToast(res.message || '提交失败', 'error');
+            }
+          } catch (e) {
+            showToast(e.message || '提交失败', 'error');
+          }
+        });
+      }
+
+      window.LunaticCho.backToExams = function() {
+        renderWeekly();
+      };
+
+      // ========== 查看排行榜 ==========
+      window.LunaticCho.viewRanking = async function(examId) {
+        const container = $('#weeklyContainer');
+        try {
+          const res = await API.getRanking(examId);
+          if (res.code === 0) {
+            const data = res.data;
+            let html = `
+              <div class="ranking-container">
+                <div class="exam-header">
+                  <h2>🏆 ${data.exam.title} - 排行榜</h2>
+                  <button onclick="window.LunaticCho.backToExams()" style="background:none; border:none; color:#2563eb; cursor:pointer; font-size:0.9rem;">← 返回考试列表</button>
+                </div>
+            `;
+            if (data.myScore) {
+              html += `
+                <div class="my-score">
+                  你的得分：<span class="big-score">${data.myScore.total_score}</span> 分
+                  ${data.myScore.status === 'graded' ? '✅ 已批改' : '⏳ 批改中...'}
+                </div>
+              `;
+            }
+            if (data.ranking.length > 0) {
+              html += `<div style="margin-top:1rem;">`;
+              data.ranking.forEach((item, idx) => {
+                const rankClass = idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : '';
+                const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
+                const avatarHtml = item.avatar ? `<img src="${item.avatar}" alt="">` : `<i class="fas fa-user"></i>`;
+                html += `
+                  <div class="ranking-item">
+                    <div class="rank ${rankClass}">${medal}</div>
+                    <div class="avatar-small">${avatarHtml}</div>
+                    <div class="name">${item.username}</div>
+                    <div class="score">${item.total_score} 分</div>
+                  </div>
+                `;
+              });
+              html += `</div>`;
+            } else {
+              html += `<p style="color:#94a3b8; text-align:center; padding:1rem 0;">暂无已完成批改的学生</p>`;
+            }
+            html += `</div>`;
+            container.innerHTML = html;
+          }
+        } catch (e) {
+          showToast('加载排行榜失败', 'error');
+        }
+      };
 
       // ========== 翻页书 ==========
       const pages_book = $$('.book-page');
