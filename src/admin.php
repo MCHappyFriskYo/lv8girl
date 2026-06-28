@@ -1,6 +1,6 @@
 <?php
 /**
- * LunaticCho 管理后台
+ * LunaticCho 管理后台 - 出题+阅卷
  */
 
 session_start();
@@ -30,54 +30,270 @@ function gsk_config() {
 }
 $pdo = gsk_config();
 
-// 处理 POST 请求
+// ========== 处理 POST 请求 ==========
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
-    if ($action === 'add_weekly') {
+
+    // ---- 创建考试 ----
+    if ($action === 'create_exam') {
         $title = $_POST['title'];
-        $content = $_POST['content'];
-        $options = $_POST['options'];
-        $answer = $_POST['answer'];
-        $status = isset($_POST['status']) ? 1 : 0;
+        $description = $_POST['description'] ?? '';
         $teacher = $_SESSION['username'];
-        $optionsArray = array_filter(array_map('trim', explode("\n", $options)));
-        $optionsJson = json_encode($optionsArray);
-        $stmt = $pdo->prepare("INSERT INTO gsk_weekly (title, content, options, answer, teacher, status) VALUES (?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$title, $content, $optionsJson, $answer, $teacher, $status]);
-        $msg = '题目添加成功';
-    } elseif ($action === 'edit_weekly') {
-        $id = $_POST['id'];
-        $title = $_POST['title'];
-        $content = $_POST['content'];
-        $options = $_POST['options'];
-        $answer = $_POST['answer'];
-        $status = isset($_POST['status']) ? 1 : 0;
-        $optionsArray = array_filter(array_map('trim', explode("\n", $options)));
-        $optionsJson = json_encode($optionsArray);
-        $stmt = $pdo->prepare("UPDATE gsk_weekly SET title=?, content=?, options=?, answer=?, status=? WHERE id=?");
-        $stmt->execute([$title, $content, $optionsJson, $answer, $status, $id]);
-        $msg = '题目更新成功';
-    } elseif ($action === 'delete_weekly') {
-        $id = $_POST['id'];
-        $stmt = $pdo->prepare("DELETE FROM gsk_weekly WHERE id=?");
-        $stmt->execute([$id]);
-        $msg = '题目已删除';
-    } elseif ($action === 'score_submission') {
-        $subId = $_POST['sub_id'];
-        $score = intval($_POST['score']);
-        $stmt = $pdo->prepare("UPDATE gsk_submissions SET score=?, status='已批改' WHERE id=?");
-        $stmt->execute([$score, $subId]);
-        $msg = '评分已提交';
+        $status = isset($_POST['publish']) ? 'published' : 'draft';
+        $stmt = $pdo->prepare("INSERT INTO gsk_exams (title, description, teacher, status, published_at) VALUES (?, ?, ?, ?, ?)");
+        $published_at = $status === 'published' ? date('Y-m-d H:i:s') : null;
+        $stmt->execute([$title, $description, $teacher, $status, $published_at]);
+        $examId = $pdo->lastInsertId();
+        $msg = '考试创建成功！ID: ' . $examId;
+        header('Location: admin.php?exam_id=' . $examId . '&msg=' . urlencode($msg));
+        exit;
     }
-    header('Location: admin.php?msg=' . urlencode($msg));
-    exit;
+
+    // ---- 添加题目 ----
+    if ($action === 'add_question') {
+        $exam_id = $_POST['exam_id'];
+        $type = $_POST['type'];
+        $content = $_POST['content'];
+        $score = intval($_POST['score']);
+        $sort_order = intval($_POST['sort_order'] ?? 0);
+        
+        if ($type === 'single' || $type === 'multiple') {
+            $options = $_POST['options'];
+            $optionsArray = array_filter(array_map('trim', explode("\n", $options)));
+            $optionsJson = json_encode($optionsArray);
+            $answer = $_POST['answer'];
+        } elseif ($type === 'fill') {
+            $optionsJson = null;
+            $answer = $_POST['fill_answer'];
+        } else { // essay
+            $optionsJson = null;
+            $answer = null;
+        }
+
+        $stmt = $pdo->prepare("INSERT INTO gsk_questions (exam_id, type, content, options, answer, score, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$exam_id, $type, $content, $optionsJson, $answer, $score, $sort_order]);
+        $msg = '题目添加成功！';
+        header('Location: admin.php?exam_id=' . $exam_id . '&msg=' . urlencode($msg));
+        exit;
+    }
+
+    // ---- 更新题目 ----
+    if ($action === 'edit_question') {
+        $qid = $_POST['qid'];
+        $content = $_POST['content'];
+        $score = intval($_POST['score']);
+        $sort_order = intval($_POST['sort_order'] ?? 0);
+        $exam_id = $_POST['exam_id'];
+        
+        // 获取原题目类型
+        $stmt = $pdo->prepare("SELECT type FROM gsk_questions WHERE id = ?");
+        $stmt->execute([$qid]);
+        $q = $stmt->fetch();
+        $type = $q['type'];
+        
+        if ($type === 'single' || $type === 'multiple') {
+            $options = $_POST['options'];
+            $optionsArray = array_filter(array_map('trim', explode("\n", $options)));
+            $optionsJson = json_encode($optionsArray);
+            $answer = $_POST['answer'];
+            $stmt = $pdo->prepare("UPDATE gsk_questions SET content=?, options=?, answer=?, score=?, sort_order=? WHERE id=?");
+            $stmt->execute([$content, $optionsJson, $answer, $score, $sort_order, $qid]);
+        } elseif ($type === 'fill') {
+            $answer = $_POST['fill_answer'];
+            $stmt = $pdo->prepare("UPDATE gsk_questions SET content=?, answer=?, score=?, sort_order=? WHERE id=?");
+            $stmt->execute([$content, $answer, $score, $sort_order, $qid]);
+        } else {
+            $stmt = $pdo->prepare("UPDATE gsk_questions SET content=?, score=?, sort_order=? WHERE id=?");
+            $stmt->execute([$content, $score, $sort_order, $qid]);
+        }
+        $msg = '题目更新成功！';
+        header('Location: admin.php?exam_id=' . $exam_id . '&msg=' . urlencode($msg));
+        exit;
+    }
+
+    // ---- 删除题目 ----
+    if ($action === 'delete_question') {
+        $qid = $_POST['qid'];
+        $exam_id = $_POST['exam_id'];
+        $stmt = $pdo->prepare("DELETE FROM gsk_questions WHERE id = ?");
+        $stmt->execute([$qid]);
+        $msg = '题目已删除';
+        header('Location: admin.php?exam_id=' . $exam_id . '&msg=' . urlencode($msg));
+        exit;
+    }
+
+    // ---- 发布考试 ----
+    if ($action === 'publish_exam') {
+        $exam_id = $_POST['exam_id'];
+        $stmt = $pdo->prepare("UPDATE gsk_exams SET status = 'published', published_at = NOW() WHERE id = ?");
+        $stmt->execute([$exam_id]);
+        $msg = '考试已发布！';
+        header('Location: admin.php?exam_id=' . $exam_id . '&msg=' . urlencode($msg));
+        exit;
+    }
+
+    // ---- 删除考试 ----
+    if ($action === 'delete_exam') {
+        $exam_id = $_POST['exam_id'];
+        $pdo->prepare("DELETE FROM gsk_answers WHERE exam_id = ?")->execute([$exam_id]);
+        $pdo->prepare("DELETE FROM gsk_results WHERE exam_id = ?")->execute([$exam_id]);
+        $pdo->prepare("DELETE FROM gsk_questions WHERE exam_id = ?")->execute([$exam_id]);
+        $pdo->prepare("DELETE FROM gsk_exams WHERE id = ?")->execute([$exam_id]);
+        $msg = '考试已删除';
+        header('Location: admin.php?msg=' . urlencode($msg));
+        exit;
+    }
+
+    // ---- 提交评分（阅卷） ----
+    if ($action === 'grade_answer') {
+        $answer_id = $_POST['answer_id'];
+        $score = intval($_POST['score']);
+        $exam_id = $_POST['exam_id'];
+        $user_id = $_POST['user_id'];
+        
+        $pdo->beginTransaction();
+        try {
+            // 更新答题记录
+            $stmt = $pdo->prepare("UPDATE gsk_answers SET score = ?, status = 'graded' WHERE id = ?");
+            $stmt->execute([$score, $answer_id]);
+            
+            // 重新计算该学生该考试的总分
+            $stmt = $pdo->prepare("SELECT SUM(score) as total FROM gsk_answers WHERE exam_id = ? AND user_id = ? AND status = 'graded'");
+            $stmt->execute([$exam_id, $user_id]);
+            $total = $stmt->fetch();
+            $totalScore = $total['total'] ?? 0;
+            
+            // 检查是否所有题目都已批改
+            $stmt = $pdo->prepare("SELECT COUNT(*) as pending FROM gsk_answers WHERE exam_id = ? AND user_id = ? AND status = 'pending'");
+            $stmt->execute([$exam_id, $user_id]);
+            $pending = $stmt->fetch();
+            
+            $status = ($pending['pending'] == 0) ? 'graded' : 'pending';
+            
+            $stmt = $pdo->prepare("INSERT INTO gsk_results (exam_id, user_id, total_score, status) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE total_score = VALUES(total_score), status = VALUES(status), updated_at = CURRENT_TIMESTAMP");
+            $stmt->execute([$exam_id, $user_id, $totalScore, $status]);
+            
+            $pdo->commit();
+            $msg = '评分提交成功！';
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            $msg = '评分失败：' . $e->getMessage();
+        }
+        header('Location: admin.php?exam_id=' . $exam_id . '&msg=' . urlencode($msg));
+        exit;
+    }
+
+    // ---- 自动批改客观题 ----
+    if ($action === 'auto_grade') {
+        $exam_id = $_POST['exam_id'];
+        // 获取所有客观题（单选、多选、填空）
+        $stmt = $pdo->prepare("SELECT id, type, answer FROM gsk_questions WHERE exam_id = ? AND type IN ('single', 'multiple', 'fill')");
+        $stmt->execute([$exam_id]);
+        $questions = $stmt->fetchAll();
+        
+        $pdo->beginTransaction();
+        try {
+            foreach ($questions as $q) {
+                // 获取该题所有待批改的答案
+                $stmt2 = $pdo->prepare("SELECT id, user_id, answer FROM gsk_answers WHERE question_id = ? AND status = 'pending'");
+                $stmt2->execute([$q['id']]);
+                $answers = $stmt2->fetchAll();
+                
+                foreach ($answers as $ans) {
+                    $isCorrect = false;
+                    if ($q['type'] === 'single') {
+                        $isCorrect = trim($ans['answer']) === trim($q['answer']);
+                    } elseif ($q['type'] === 'multiple') {
+                        // 多选题：答案排序后比较
+                        $userAnswers = array_map('trim', explode(',', $ans['answer']));
+                        $correctAnswers = array_map('trim', explode(',', $q['answer']));
+                        sort($userAnswers);
+                        sort($correctAnswers);
+                        $isCorrect = $userAnswers === $correctAnswers;
+                    } elseif ($q['type'] === 'fill') {
+                        $isCorrect = trim($ans['answer']) === trim($q['answer']);
+                    }
+                    
+                    $score = $isCorrect ? $q['score'] : 0;
+                    $stmt3 = $pdo->prepare("UPDATE gsk_answers SET score = ?, status = 'graded' WHERE id = ?");
+                    $stmt3->execute([$score, $ans['id']]);
+                }
+            }
+            
+            // 重新计算所有学生总分
+            $stmt = $pdo->prepare("SELECT DISTINCT user_id FROM gsk_answers WHERE exam_id = ?");
+            $stmt->execute([$exam_id]);
+            $users = $stmt->fetchAll();
+            
+            foreach ($users as $u) {
+                $stmt2 = $pdo->prepare("SELECT SUM(score) as total FROM gsk_answers WHERE exam_id = ? AND user_id = ? AND status = 'graded'");
+                $stmt2->execute([$exam_id, $u['user_id']]);
+                $total = $stmt2->fetch();
+                
+                $stmt3 = $pdo->prepare("SELECT COUNT(*) as pending FROM gsk_answers WHERE exam_id = ? AND user_id = ? AND status = 'pending'");
+                $stmt3->execute([$exam_id, $u['user_id']]);
+                $pending = $stmt3->fetch();
+                
+                $status = ($pending['pending'] == 0) ? 'graded' : 'pending';
+                $stmt4 = $pdo->prepare("INSERT INTO gsk_results (exam_id, user_id, total_score, status) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE total_score = VALUES(total_score), status = VALUES(status), updated_at = CURRENT_TIMESTAMP");
+                $stmt4->execute([$exam_id, $u['user_id'], $total['total'] ?? 0, $status]);
+            }
+            
+            $pdo->commit();
+            $msg = '自动批改完成！';
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            $msg = '自动批改失败：' . $e->getMessage();
+        }
+        header('Location: admin.php?exam_id=' . $exam_id . '&msg=' . urlencode($msg));
+        exit;
+    }
 }
 
-$weeklyStmt = $pdo->query("SELECT * FROM gsk_weekly ORDER BY created_at DESC");
-$weeklies = $weeklyStmt->fetchAll();
+// ========== 获取数据 ==========
+$exam_id = $_GET['exam_id'] ?? 0;
 
-$subStmt = $pdo->query("SELECT s.*, u.username FROM gsk_submissions s LEFT JOIN gsk_users u ON s.user_id = u.id ORDER BY s.upload_time DESC");
-$submissions = $subStmt->fetchAll();
+// 获取所有考试列表
+$stmt = $pdo->query("SELECT * FROM gsk_exams ORDER BY created_at DESC");
+$exams = $stmt->fetchAll();
+
+// 获取当前考试的题目
+$questions = [];
+$students = [];
+$exam = null;
+if ($exam_id) {
+    $stmt = $pdo->prepare("SELECT * FROM gsk_exams WHERE id = ?");
+    $stmt->execute([$exam_id]);
+    $exam = $stmt->fetch();
+    
+    if ($exam) {
+        $stmt = $pdo->prepare("SELECT * FROM gsk_questions WHERE exam_id = ? ORDER BY sort_order, id");
+        $stmt->execute([$exam_id]);
+        $questions = $stmt->fetchAll();
+        
+        // 获取已提交答案的学生列表
+        $stmt = $pdo->prepare("SELECT DISTINCT u.id, u.username, u.email, r.total_score, r.status as result_status 
+                               FROM gsk_answers a 
+                               JOIN gsk_users u ON a.user_id = u.id 
+                               LEFT JOIN gsk_results r ON r.exam_id = a.exam_id AND r.user_id = u.id 
+                               WHERE a.exam_id = ? 
+                               GROUP BY u.id");
+        $stmt->execute([$exam_id]);
+        $students = $stmt->fetchAll();
+        
+        // 获取每个学生的答题详情
+        foreach ($students as &$stu) {
+            $stmt = $pdo->prepare("SELECT q.id, q.type, q.content, q.options, q.answer as correct_answer, q.score as max_score, 
+                                   a.id as answer_id, a.answer as user_answer, a.score, a.status 
+                                   FROM gsk_questions q 
+                                   LEFT JOIN gsk_answers a ON a.question_id = q.id AND a.user_id = ? 
+                                   WHERE q.exam_id = ? 
+                                   ORDER BY q.sort_order, q.id");
+            $stmt->execute([$stu['id'], $exam_id]);
+            $stu['answers'] = $stmt->fetchAll();
+        }
+    }
+}
 
 $msg = $_GET['msg'] ?? '';
 ?>
@@ -89,14 +305,14 @@ $msg = $_GET['msg'] ?? '';
     <title>LunaticCho 管理后台</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background: #f1f5f9;
             color: #1e293b;
-            margin: 0;
             padding: 2rem;
         }
-        .container { max-width: 1200px; margin: 0 auto; }
+        .container { max-width: 1400px; margin: 0 auto; }
         h1 {
             color: #0b3b4c;
             border-bottom: 2px solid #d4a373;
@@ -104,6 +320,7 @@ $msg = $_GET['msg'] ?? '';
             display: flex;
             align-items: center;
             gap: 1rem;
+            flex-wrap: wrap;
         }
         h1 a {
             font-size: 0.9rem;
@@ -135,12 +352,25 @@ $msg = $_GET['msg'] ?? '';
             align-items: center;
             gap: 0.5rem;
         }
+        .section h3 {
+            color: #0b3b4c;
+            margin: 0.5rem 0;
+        }
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+        @media (max-width: 768px) {
+            .grid-2 { grid-template-columns: 1fr; }
+        }
         table {
             width: 100%;
             border-collapse: collapse;
+            font-size: 0.9rem;
         }
         th, td {
-            padding: 0.6rem 0.8rem;
+            padding: 0.5rem 0.8rem;
             text-align: left;
             border-bottom: 1px solid #e9edf2;
         }
@@ -164,9 +394,12 @@ $msg = $_GET['msg'] ?? '';
         .btn-danger:hover { background: #991b1b; }
         .btn-success { background: #0b6b4c; }
         .btn-success:hover { background: #0a5a3e; }
+        .btn-warning { background: #d4a373; }
+        .btn-warning:hover { background: #c08d5e; }
+        .btn-sm { padding: 0.1rem 0.6rem; font-size: 0.8rem; }
         form.inline { display: inline; }
-        .form-group { margin-bottom: 1rem; }
-        .form-group label { display: block; font-weight: 500; margin-bottom: 0.2rem; }
+        .form-group { margin-bottom: 0.8rem; }
+        .form-group label { display: block; font-weight: 500; margin-bottom: 0.2rem; font-size: 0.9rem; }
         .form-group input, .form-group textarea, .form-group select {
             width: 100%;
             padding: 0.4rem 0.6rem;
@@ -174,30 +407,25 @@ $msg = $_GET['msg'] ?? '';
             border-radius: 6px;
             font-size: 0.95rem;
         }
-        .form-group textarea { min-height: 60px; }
+        .form-group textarea { min-height: 50px; }
         .form-row {
             display: flex;
             gap: 1rem;
             flex-wrap: wrap;
         }
-        .form-row .form-group {
-            flex: 1;
-            min-width: 150px;
-        }
+        .form-row .form-group { flex: 1; min-width: 120px; }
         .badge {
             display: inline-block;
             padding: 0.1rem 0.6rem;
             border-radius: 20px;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             font-weight: 600;
         }
         .badge-draft { background: #e2e8f0; color: #475569; }
         .badge-published { background: #d1fae5; color: #0b6b4c; }
-        .toggle-form {
-            cursor: pointer;
-            color: #2563eb;
-            font-size: 0.9rem;
-        }
+        .badge-grading { background: #fef3c7; color: #b45309; }
+        .badge-completed { background: #dbeafe; color: #1d4ed8; }
+        .toggle-form { cursor: pointer; color: #2563eb; font-size: 0.85rem; }
         .toggle-form:hover { text-decoration: underline; }
         .hidden { display: none; }
         .edit-form {
@@ -207,11 +435,46 @@ $msg = $_GET['msg'] ?? '';
             margin: 0.5rem 0 1rem;
             border: 1px solid #e2e8f0;
         }
-        .action-btns {
-            display: flex;
-            gap: 0.4rem;
-            flex-wrap: wrap;
+        .action-btns { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+        .question-type {
+            display: inline-block;
+            padding: 0.05rem 0.5rem;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 600;
         }
+        .type-single { background: #dbeafe; color: #1d4ed8; }
+        .type-multiple { background: #fef3c7; color: #b45309; }
+        .type-fill { background: #d1fae5; color: #0b6b4c; }
+        .type-essay { background: #fce4ec; color: #b91c1c; }
+        .score-input { width: 60px; padding: 0.2rem 0.3rem; border: 1px solid #d1d9e6; border-radius: 4px; }
+        .student-answer {
+            background: #f8fafc;
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            max-width: 200px;
+            font-size: 0.85rem;
+        }
+        .correct { color: #0b6b4c; font-weight: 600; }
+        .wrong { color: #b91c1c; font-weight: 600; }
+        .exam-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+        .exam-card {
+            background: #f8fafc;
+            padding: 1rem;
+            border-radius: 8px;
+            border-left: 4px solid #d4a373;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .exam-card:hover { background: #f1f5f9; }
+        .exam-card .title { font-weight: 600; font-size: 1rem; }
+        .exam-card .meta { font-size: 0.8rem; color: #64748b; }
+        .exam-card .status { margin-top: 0.3rem; }
     </style>
 </head>
 <body>
@@ -228,172 +491,164 @@ $msg = $_GET['msg'] ?? '';
         <div class="msg"><?= htmlspecialchars($msg) ?></div>
     <?php endif; ?>
 
-    <!-- ===== 出题管理 ===== -->
+    <!-- ===== 考试列表 ===== -->
     <div class="section">
-        <h2><i class="fas fa-pencil-alt"></i> 出题管理</h2>
-
+        <h2><i class="fas fa-list"></i> 考试列表</h2>
+        
         <details>
-            <summary style="cursor:pointer; font-weight:600; color:#0b3b4c;">➕ 添加新周常题目</summary>
+            <summary style="cursor:pointer; font-weight:600; color:#0b3b4c;">➕ 创建新考试</summary>
             <form method="POST" style="margin-top:1rem;">
-                <input type="hidden" name="action" value="add_weekly">
+                <input type="hidden" name="action" value="create_exam">
                 <div class="form-row">
-                    <div class="form-group">
-                        <label>标题</label>
+                    <div class="form-group" style="flex:2;">
+                        <label>考试标题</label>
                         <input type="text" name="title" required>
                     </div>
-                    <div class="form-group">
-                        <label>正确答案 (A/B/C/D)</label>
-                        <input type="text" name="answer" maxlength="1" required>
+                    <div class="form-group" style="flex:1;">
+                        <label><input type="checkbox" name="publish"> 立即发布</label>
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>题目内容</label>
-                    <textarea name="content" rows="2" required></textarea>
+                    <label>考试说明</label>
+                    <textarea name="description" rows="2"></textarea>
                 </div>
-                <div class="form-group">
-                    <label>选项（每行一个）</label>
-                    <textarea name="options" rows="4" required placeholder="A. 选项1&#10;B. 选项2&#10;C. 选项3&#10;D. 选项4"></textarea>
-                </div>
-                <div class="form-group">
-                    <label><input type="checkbox" name="status" checked> 立即发布</label>
-                </div>
-                <button type="submit" class="btn btn-success">发布题目</button>
+                <button type="submit" class="btn btn-success">创建考试</button>
             </form>
         </details>
 
-        <hr style="margin:1.5rem 0;">
-
-        <h3>已有题目</h3>
-        <?php if (count($weeklies) > 0): ?>
-            <table>
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>标题</th>
-                        <th>出卷老师</th>
-                        <th>状态</th>
-                        <th>操作</th>
-                    </tr>
-                </thead>
-                <tbody>
-                <?php foreach ($weeklies as $w): ?>
-                    <tr>
-                        <td><?= $w['id'] ?></td>
-                        <td><?= htmlspecialchars($w['title']) ?></td>
-                        <td><?= htmlspecialchars($w['teacher']) ?></td>
-                        <td>
-                            <span class="badge <?= $w['status'] ? 'badge-published' : 'badge-draft' ?>">
-                                <?= $w['status'] ? '已发布' : '草稿' ?>
-                            </span>
-                        </td>
-                        <td class="action-btns">
-                            <span class="toggle-form" onclick="toggleEdit(<?= $w['id'] ?>)">编辑</span>
-                            <form method="POST" class="inline" onsubmit="return confirm('确认删除？')">
-                                <input type="hidden" name="action" value="delete_weekly">
-                                <input type="hidden" name="id" value="<?= $w['id'] ?>">
-                                <button type="submit" class="btn btn-danger" style="padding:0.1rem 0.8rem; font-size:0.8rem;">删除</button>
+        <div class="exam-list">
+            <?php foreach ($exams as $e): ?>
+                <div class="exam-card" onclick="window.location.href='?exam_id=<?= $e['id'] ?>'">
+                    <div class="title"><?= htmlspecialchars($e['title']) ?></div>
+                    <div class="meta">👩‍🏫 <?= htmlspecialchars($e['teacher']) ?> · <?= date('Y-m-d', strtotime($e['created_at'])) ?></div>
+                    <div class="status">
+                        <span class="badge badge-<?= $e['status'] ?>">
+                            <?= ['draft'=>'草稿', 'published'=>'已发布', 'grading'=>'批改中', 'completed'=>'已完成'][$e['status']] ?? $e['status'] ?>
+                        </span>
+                        <?php if ($e['status'] === 'draft'): ?>
+                            <form method="POST" class="inline">
+                                <input type="hidden" name="action" value="publish_exam">
+                                <input type="hidden" name="exam_id" value="<?= $e['id'] ?>">
+                                <button type="submit" class="btn btn-success btn-sm">发布</button>
                             </form>
-                        </td>
-                    </tr>
-                    <tr id="edit-row-<?= $w['id'] ?>" class="hidden">
-                        <td colspan="5">
-                            <div class="edit-form">
-                                <form method="POST">
-                                    <input type="hidden" name="action" value="edit_weekly">
-                                    <input type="hidden" name="id" value="<?= $w['id'] ?>">
-                                    <div class="form-row">
-                                        <div class="form-group">
-                                            <label>标题</label>
-                                            <input type="text" name="title" value="<?= htmlspecialchars($w['title']) ?>" required>
-                                        </div>
-                                        <div class="form-group">
-                                            <label>正确答案</label>
-                                            <input type="text" name="answer" value="<?= htmlspecialchars($w['answer']) ?>" maxlength="1" required>
-                                        </div>
-                                    </div>
-                                    <div class="form-group">
-                                        <label>题目内容</label>
-                                        <textarea name="content" rows="2" required><?= htmlspecialchars($w['content']) ?></textarea>
-                                    </div>
-                                    <div class="form-group">
-                                        <label>选项</label>
-                                        <textarea name="options" rows="4" required><?php
-                                            $opts = json_decode($w['options'], true);
-                                            echo htmlspecialchars(implode("\n", $opts));
-                                        ?></textarea>
-                                    </div>
-                                    <div class="form-group">
-                                        <label><input type="checkbox" name="status" <?= $w['status'] ? 'checked' : '' ?>> 发布</label>
-                                    </div>
-                                    <button type="submit" class="btn btn-success">更新</button>
-                                    <span class="toggle-form" onclick="toggleEdit(<?= $w['id'] ?>)">取消</span>
-                                </form>
-                            </div>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-                </tbody>
-            </table>
-        <?php else: ?>
-            <p style="color:#94a3b8;">暂无题目</p>
-        <?php endif; ?>
+                        <?php endif; ?>
+                        <?php if ($e['status'] !== 'draft'): ?>
+                            <form method="POST" class="inline" onsubmit="return confirm('确认删除此考试及所有数据？')">
+                                <input type="hidden" name="action" value="delete_exam">
+                                <input type="hidden" name="exam_id" value="<?= $e['id'] ?>">
+                                <button type="submit" class="btn btn-danger btn-sm">删除</button>
+                            </form>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
     </div>
 
-    <!-- ===== 阅卷管理 ===== -->
+    <?php if ($exam): ?>
+    <!-- ===== 当前考试详情 ===== -->
     <div class="section">
-        <h2><i class="fas fa-check-double"></i> 阅卷管理</h2>
-        <p style="color:#64748b;">对已上传的答题卡进行评分。</p>
-        <?php if (count($submissions) > 0): ?>
-            <table>
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>学生</th>
-                        <th>文件名</th>
-                        <th>上传时间</th>
-                        <th>状态</th>
-                        <th>分数</th>
-                        <th>操作</th>
-                    </tr>
-                </thead>
-                <tbody>
-                <?php foreach ($submissions as $sub): ?>
-                    <tr>
-                        <td><?= $sub['id'] ?></td>
-                        <td><?= htmlspecialchars($sub['username'] ?? '未知') ?></td>
-                        <td><?= htmlspecialchars($sub['file_name']) ?></td>
-                        <td><?= date('Y-m-d H:i', strtotime($sub['upload_time'])) ?></td>
-                        <td><?= $sub['status'] ?></td>
-                        <td><?= $sub['score'] !== null ? $sub['score'] : '-' ?></td>
-                        <td>
-                            <?php if ($sub['status'] === '待批改'): ?>
-                                <form method="POST" class="inline" onsubmit="return confirm('确认评分？')">
-                                    <input type="hidden" name="action" value="score_submission">
-                                    <input type="hidden" name="sub_id" value="<?= $sub['id'] ?>">
-                                    <input type="number" name="score" min="0" max="100" required style="width:60px;">
-                                    <button type="submit" class="btn btn-success">提交</button>
-                                </form>
-                            <?php else: ?>
-                                <span style="color:#94a3b8;">已评分</span>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-                </tbody>
-            </table>
-        <?php else: ?>
-            <p style="color:#94a3b8;">暂无答题卡上传记录。</p>
-        <?php endif; ?>
+        <h2><i class="fas fa-pencil-alt"></i> <?= htmlspecialchars($exam['title']) ?></h2>
+        <p style="color:#64748b;"><?= htmlspecialchars($exam['description'] ?? '') ?></p>
+        <p style="font-size:0.85rem; color:#94a3b8;">
+            状态：<span class="badge badge-<?= $exam['status'] ?>">
+                <?= ['draft'=>'草稿', 'published'=>'已发布', 'grading'=>'批改中', 'completed'=>'已完成'][$exam['status']] ?? $exam['status'] ?>
+            </span>
+            <?php if ($exam['status'] === 'draft'): ?>
+                <form method="POST" class="inline">
+                    <input type="hidden" name="action" value="publish_exam">
+                    <input type="hidden" name="exam_id" value="<?= $exam['id'] ?>">
+                    <button type="submit" class="btn btn-success btn-sm">发布考试</button>
+                </form>
+            <?php endif; ?>
+        </p>
     </div>
-</div>
 
-<script>
-    function toggleEdit(id) {
-        const row = document.getElementById('edit-row-' + id);
-        if (row) {
-            row.classList.toggle('hidden');
-        }
-    }
-</script>
-</body>
-</html>
+    <!-- ===== 添加题目 ===== -->
+    <div class="section">
+        <h2><i class="fas fa-plus-circle"></i> 添加题目</h2>
+        <details>
+            <summary style="cursor:pointer; font-weight:600; color:#0b3b4c;">➕ 添加新题目</summary>
+            <form method="POST" style="margin-top:1rem;" id="questionForm">
+                <input type="hidden" name="action" value="add_question">
+                <input type="hidden" name="exam_id" value="<?= $exam['id'] ?>">
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>题型</label>
+                        <select name="type" id="qType" onchange="toggleOptions()">
+                            <option value="single">单选题</option>
+                            <option value="multiple">多选题</option>
+                            <option value="fill">填空题</option>
+                            <option value="essay">解答题</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>分值</label>
+                        <input type="number" name="score" value="5" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label>排序</label>
+                        <input type="number" name="sort_order" value="0">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>题目内容</label>
+                    <textarea name="content" rows="3" required></textarea>
+                </div>
+                
+                <div class="form-group" id="optionsGroup">
+                    <label>选项（每行一个）</label>
+                    <textarea name="options" rows="4" placeholder="A. 选项1&#10;B. 选项2&#10;C. 选项3&#10;D. 选项4"></textarea>
+                </div>
+                
+                <div class="form-group" id="answerGroup">
+                    <label>正确答案</label>
+                    <input type="text" name="answer" placeholder="单选题填 A/B/C/D，多选题用英文逗号分隔">
+                </div>
+                
+                <div class="form-group hidden" id="fillGroup">
+                    <label>填空答案</label>
+                    <input type="text" name="fill_answer" placeholder="填空答案">
+                </div>
+                
+                <button type="submit" class="btn btn-success">添加题目</button>
+            </form>
+        </details>
+        
+        <?php if (count($questions) > 0): ?>
+        <h3 style="margin-top:1.5rem;">已有题目 (<?= count($questions) ?> 题，总分 <?= array_sum(array_column($questions, 'score')) ?> 分)</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>题型</th>
+                    <th>内容</th>
+                    <th>分值</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php foreach ($questions as $q): ?>
+                <tr>
+                    <td><?= $q['id'] ?></td>
+                    <td><span class="question-type type-<?= $q['type'] ?>"><?= ['single'=>'单选','multiple'=>'多选','fill'=>'填空','essay'=>'解答'][$q['type']] ?></span></td>
+                    <td><?= htmlspecialchars(mb_substr($q['content'], 0, 30)) ?>...</td>
+                    <td><?= $q['score'] ?></td>
+                    <td class="action-btns">
+                        <span class="toggle-form" onclick="toggleEdit(<?= $q['id'] ?>)">编辑</span>
+                        <form method="POST" class="inline" onsubmit="return confirm('确认删除？')">
+                            <input type="hidden" name="action" value="delete_question">
+                            <input type="hidden" name="qid" value="<?= $q['id'] ?>">
+                            <input type="hidden" name="exam_id" value="<?= $exam['id'] ?>">
+                            <button type="submit" class="btn btn-danger btn-sm">删除</button>
+                        </form>
+                    </td>
+                </tr>
+                <tr id="edit-row-<?= $q['id'] ?>" class="hidden">
+                    <td colspan="5">
+                        <div class="edit-form">
+                            <form method="POST">
+                                <input type="hidden" name="action" value="edit_question">
+                                <
