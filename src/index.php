@@ -1,7 +1,6 @@
 <?php
 /**
- * LunaticCho 前台 - 完整版
- * 支持题目图片、排行榜、防重复答题、头像上传
+ * LunaticCho 前台 - 修复选择题作答
  */
 
 error_reporting(E_ALL);
@@ -368,6 +367,7 @@ header('Content-Type: text/html; charset=utf-8');
   <title>LunaticCho · 联考平台</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <style>
+    /* ===== 全局样式 ===== */
     * { margin:0; padding:0; box-sizing:border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -669,7 +669,7 @@ header('Content-Type: text/html; charset=utf-8');
       color: #0b6b4c;
     }
 
-    /* 排行榜区域（周常页面顶部） */
+    /* 排行榜区域 */
     .ranking-section {
       background: #f8fafc;
       border-radius: 10px;
@@ -739,16 +739,8 @@ header('Content-Type: text/html; charset=utf-8');
       background: #dbeafe;
       color: #1d4ed8;
     }
-    .question-item .q-content { 
-      margin-bottom: 0.8rem; 
-      color: #1e293b;
-    }
-    .question-item .q-content img {
-      max-width: 100%;
-      height: auto;
-      border-radius: 6px;
-      margin: 0.5rem 0;
-    }
+    .question-item .q-content { margin-bottom: 0.8rem; color: #1e293b; }
+    .question-item .q-content img { max-width: 100%; height: auto; border-radius: 4px; margin: 0.5rem 0; }
     .question-item .q-options label {
       display: flex;
       align-items: center;
@@ -761,6 +753,7 @@ header('Content-Type: text/html; charset=utf-8');
       accent-color: #0b3b4c;
       width: 16px;
       height: 16px;
+      flex-shrink: 0;
     }
     .question-item .q-options textarea {
       width: 100%;
@@ -793,7 +786,7 @@ header('Content-Type: text/html; charset=utf-8');
     .btn-submit-exam:hover { background: #0a2f3d; }
     .btn-submit-exam:disabled { opacity: 0.6; cursor: not-allowed; }
 
-    /* 排行榜（独立视图） */
+    /* 排行榜独立视图 */
     .ranking-container { max-width: 600px; margin: 0 auto; }
     .ranking-item {
       display: flex;
@@ -1080,7 +1073,7 @@ header('Content-Type: text/html; charset=utf-8');
   </nav>
 
   <div class="container">
-    <!-- 主页 -->
+    <!-- ===== 主页 ===== -->
     <section class="page active" id="page-home">
       <div class="hero">
         <div class="hero-logo"><i class="fas fa-flask"></i></div>
@@ -1140,7 +1133,7 @@ header('Content-Type: text/html; charset=utf-8');
       </div>
     </section>
 
-    <!-- 周常 -->
+    <!-- ===== 周常 ===== -->
     <section class="page" id="page-weekly">
       <div class="card">
         <div class="card-title"><i class="fas fa-calendar-week"></i>周常 · 化学挑战</div>
@@ -1523,7 +1516,7 @@ header('Content-Type: text/html; charset=utf-8');
         this.value = '';
       });
 
-      // ========== 主页 - 我的周常进度 ==========
+      // ========== 主页进度 ==========
       async function renderHomeProgress() {
         const container = $('#homeProgressContent');
         if (!currentUser) {
@@ -1646,7 +1639,7 @@ header('Content-Type: text/html; charset=utf-8');
         }
       }
 
-      // ========== 处理考试点击（防重复答题） ==========
+      // ========== 处理考试点击 ==========
       window.LunaticCho = {
         handleExamClick: async function(examId) {
           if (!currentUser) {
@@ -1743,10 +1736,12 @@ header('Content-Type: text/html; charset=utf-8');
           `;
           container.innerHTML = html;
 
+          // 提交答案事件
           document.getElementById('examForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             const formData = new FormData(this);
             const answers = {};
+            // 收集所有答案
             for (let [key, value] of formData.entries()) {
               const qid = parseInt(key.replace('q_', ''));
               if (value && value.trim()) {
@@ -1757,6 +1752,7 @@ header('Content-Type: text/html; charset=utf-8');
                 }
               }
             }
+            // 检查是否至少有一题作答
             if (Object.keys(answers).length === 0) {
               showToast('请至少回答一道题', 'error');
               return;
@@ -1880,7 +1876,7 @@ header('Content-Type: text/html; charset=utf-8');
         if (!e.target.closest('.navbar')) navList.classList.remove('open');
       });
 
-      console.log('LunaticCho 前台启动完成（支持题目图片）');
+      console.log('LunaticCho 前台启动完成（修复选择题）');
     })();
   </script>
 </body>
