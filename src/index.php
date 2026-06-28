@@ -1,23 +1,20 @@
 <?php
 /**
- * GSKChem 联考平台 - 博物志翻页书纯图片版
- * 图片命名：01.jpg ~ 08.jpg，放在 index.php 同级目录
+ * GSKChem 前台
+ * 数据库配置：host=db
  */
 
-// 关闭错误显示，但记录到日志
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
-
-// 输出缓冲
 ob_start();
 
 // ========== 数据库配置 ==========
 function gsk_config() {
-    $host = 'localhost';
+    $host = 'db';
     $dbname = 'lv8girl';
     $db_user = 'lv8girl';
-    $db_pass = 'yourpasswd';   // 请修改为实际密码
+    $db_pass = 'yourpasswd';
     try {
         $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $db_user, $db_pass);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -49,19 +46,20 @@ if (isset($_REQUEST['action'])) {
         // ---------- 登录 ----------
         if ($action === 'login') {
             $input = json_decode(file_get_contents('php://input'), true);
-            $email = trim($input['username'] ?? '');
+            $login = trim($input['username'] ?? '');
             $password = trim($input['password'] ?? '');
-            if (!$email || !$password) {
+            if (!$login || !$password) {
                 http_response_code(400);
-                echo json_encode(['code' => 40001, 'message' => '请填写邮箱和密码']);
+                echo json_encode(['code' => 40001, 'message' => '请填写用户名/邮箱和密码']);
                 exit;
             }
-            $stmt = $pdo->prepare("SELECT * FROM gsk_users WHERE email = ?");
-            $stmt->execute([$email]);
+            // 支持用户名或邮箱登录
+            $stmt = $pdo->prepare("SELECT * FROM gsk_users WHERE username = ? OR email = ?");
+            $stmt->execute([$login, $login]);
             $user = $stmt->fetch();
             if (!$user || !password_verify($password, $user['password'])) {
                 http_response_code(401);
-                echo json_encode(['code' => 40001, 'message' => '邮箱或密码错误']);
+                echo json_encode(['code' => 40001, 'message' => '用户名/邮箱或密码错误']);
                 exit;
             }
             if ($user['status'] !== 'ACTIVE') {
@@ -70,6 +68,7 @@ if (isset($_REQUEST['action'])) {
                 exit;
             }
             $_SESSION['user_id'] = $user['id'];
+            $_SESSION['username'] = $user['username'];
             $_SESSION['email'] = $user['email'];
             $_SESSION['role'] = $user['role'];
             $_SESSION['tenant_id'] = $user['tenant_id'];
@@ -80,7 +79,8 @@ if (isset($_REQUEST['action'])) {
                     'expiresIn' => 900,
                     'user' => [
                         'id' => $user['id'],
-                        'username' => $user['email'],
+                        'username' => $user['username'],
+                        'email' => $user['email'],
                         'role' => $user['role'],
                         'tenantId' => $user['tenant_id']
                     ]
@@ -89,16 +89,25 @@ if (isset($_REQUEST['action'])) {
             exit;
         }
 
-        // ---------- 注册（兼容 real_name） ----------
+        // ---------- 注册（增加 username） ----------
         if ($action === 'register') {
             $input = json_decode(file_get_contents('php://input'), true);
+            $username = trim($input['username'] ?? '');
             $email = trim($input['email'] ?? '');
             $password = trim($input['password'] ?? '');
             $qq = trim($input['qq'] ?? '');
 
-            if (!$email || !$password) {
+            if (!$username || !$email || !$password) {
                 http_response_code(400);
-                echo json_encode(['code' => 40001, 'message' => '邮箱和密码为必填项']);
+                echo json_encode(['code' => 40001, 'message' => '用户名、邮箱和密码为必填项']);
+                exit;
+            }
+            // 检查用户名是否已存在
+            $stmt = $pdo->prepare("SELECT id FROM gsk_users WHERE username = ?");
+            $stmt->execute([$username]);
+            if ($stmt->fetch()) {
+                http_response_code(409);
+                echo json_encode(['code' => 40900, 'message' => '该用户名已被使用']);
                 exit;
             }
             if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -112,6 +121,7 @@ if (isset($_REQUEST['action'])) {
                 exit;
             }
 
+            // 检查邮箱是否已注册
             $stmt = $pdo->prepare("SELECT id FROM gsk_users WHERE email = ?");
             $stmt->execute([$email]);
             if ($stmt->fetch()) {
@@ -122,16 +132,16 @@ if (isset($_REQUEST['action'])) {
 
             $hashed = password_hash($password, PASSWORD_DEFAULT);
 
-            // 检查 real_name 列是否存在
+            // 检查 real_name 列是否存在（兼容旧表）
             $check = $pdo->query("SHOW COLUMNS FROM gsk_users LIKE 'real_name'");
             $hasRealName = $check->rowCount() > 0;
 
             if ($hasRealName) {
-                $stmt = $pdo->prepare("INSERT INTO gsk_users (email, password, qq, role, tenant_id, status, real_name) VALUES (?, ?, ?, 'MARKER', 'school_a', 'ACTIVE', '')");
-                $stmt->execute([$email, $hashed, $qq]);
+                $stmt = $pdo->prepare("INSERT INTO gsk_users (username, email, password, qq, role, tenant_id, status, real_name) VALUES (?, ?, ?, ?, 'MARKER', 'school_a', 'ACTIVE', '')");
+                $stmt->execute([$username, $email, $hashed, $qq]);
             } else {
-                $stmt = $pdo->prepare("INSERT INTO gsk_users (email, password, qq, role, tenant_id, status) VALUES (?, ?, ?, 'MARKER', 'school_a', 'ACTIVE')");
-                $stmt->execute([$email, $hashed, $qq]);
+                $stmt = $pdo->prepare("INSERT INTO gsk_users (username, email, password, qq, role, tenant_id, status) VALUES (?, ?, ?, ?, 'MARKER', 'school_a', 'ACTIVE')");
+                $stmt->execute([$username, $email, $hashed, $qq]);
             }
 
             $userId = $pdo->lastInsertId();
@@ -151,7 +161,7 @@ if (isset($_REQUEST['action'])) {
                 echo json_encode(['code' => 40100, 'message' => '未登录']);
                 exit;
             }
-            $stmt = $pdo->prepare("SELECT id, email, qq, role FROM gsk_users WHERE id = ?");
+            $stmt = $pdo->prepare("SELECT id, username, email, qq, role FROM gsk_users WHERE id = ?");
             $stmt->execute([$_SESSION['user_id']]);
             $user = $stmt->fetch();
             if (!$user) {
@@ -167,6 +177,18 @@ if (isset($_REQUEST['action'])) {
         if ($action === 'logout') {
             session_destroy();
             echo json_encode(['code' => 0, 'message' => '已登出']);
+            exit;
+        }
+
+        // ---------- 获取周常题目（前台只获取已发布的） ----------
+        if ($action === 'get_weekly') {
+            $stmt = $pdo->query("SELECT id, title, content, options, answer, teacher, created_at FROM gsk_weekly WHERE status = 1 ORDER BY created_at DESC");
+            $items = $stmt->fetchAll();
+            // 解析 options JSON
+            foreach ($items as &$item) {
+                $item['options'] = json_decode($item['options'], true);
+            }
+            echo json_encode(['code' => 0, 'data' => $items]);
             exit;
         }
 
@@ -196,7 +218,7 @@ header('Content-Type: text/html; charset=utf-8');
   <title>GSKChem · 联考平台</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <style>
-    /* ===== 基础样式（与之前相同） ===== */
+    /* ===== 样式精简（与之前一致，新增周常卡片样式） ===== */
     * { margin:0; padding:0; box-sizing:border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -353,7 +375,7 @@ header('Content-Type: text/html; charset=utf-8');
     .exam-empty i { font-size: 4rem; color: #d4a373; margin-bottom: 1rem; display: block; }
     .exam-empty h3 { font-size: 1.5rem; color: #0b3b4c; margin-bottom: 0.5rem; }
 
-    /* ===== 博物志翻页书 - 纯图片版 ===== */
+    /* 博物志翻页书 - 纯图片 */
     .book-container {
       position: relative;
       max-width: 700px;
@@ -361,7 +383,7 @@ header('Content-Type: text/html; charset=utf-8');
       background: #ffffff;
       border-radius: 16px;
       box-shadow: 0 8px 30px rgba(0,0,0,0.10);
-      padding: 0; /* 去掉内边距，让图片占满 */
+      padding: 0;
       min-height: 400px;
       display: flex;
       flex-direction: column;
@@ -373,7 +395,7 @@ header('Content-Type: text/html; charset=utf-8');
     .book-pages {
       position: relative;
       width: 100%;
-      height: 450px; /* 固定高度，根据图片比例可调整 */
+      height: 450px;
       overflow: hidden;
     }
     .book-page {
@@ -396,14 +418,10 @@ header('Content-Type: text/html; charset=utf-8');
       transform: translateX(0) scale(1);
       pointer-events: auto;
     }
-    .book-page.exit {
-      opacity: 0;
-      transform: translateX(-30px) scale(0.95);
-    }
     .book-page img {
       width: 100%;
       height: 100%;
-      object-fit: contain; /* 保持图片比例，完整显示 */
+      object-fit: contain;
       background: #ffffff;
       border-radius: 0;
     }
@@ -437,40 +455,74 @@ header('Content-Type: text/html; charset=utf-8');
       text-align: center;
     }
 
-    /* ===== 周常样式（与之前相同） ===== */
-    .weekly-list {
+    /* 周常卡片 */
+    .weekly-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1.2rem;
+      margin-top: 1rem;
+    }
+    .weekly-card {
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 1.2rem 1.5rem;
+      border-left: 4px solid #d4a373;
+      cursor: pointer;
+      transition: background 0.15s;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+    }
+    .weekly-card:hover { background: #f1f5f9; }
+    .weekly-card .meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      color: #64748b;
+      margin-top: 0.3rem;
+    }
+    .weekly-card .title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #0b3b4c;
+    }
+    .weekly-detail {
+      display: none;
+      margin-top: 0.8rem;
+      padding-top: 0.8rem;
+      border-top: 1px solid #e2e8f0;
+    }
+    .weekly-detail.open { display: block; }
+    .weekly-detail .content {
+      color: #1e293b;
+      margin-bottom: 0.6rem;
+    }
+    .weekly-detail .options {
       display: flex;
       flex-direction: column;
-      gap: 1.2rem;
-      max-width: 700px;
-      margin: 0 auto;
+      gap: 0.3rem;
     }
-    .weekly-item {
-      background: #f8fafc;
-      padding: 1.2rem 1.5rem;
-      border-radius: 8px;
-      border-left: 4px solid #d4a373;
+    .weekly-detail .options label {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 0.9rem;
     }
-    .weekly-item h4 { font-size: 1.05rem; color: #0b3b4c; margin-bottom: 0.3rem; }
-    .weekly-item p { color: #475569; font-size: 0.9rem; }
-    .weekly-item .options { margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.3rem; }
-    .weekly-item .options label { display: flex; align-items: center; gap: 0.6rem; font-size: 0.9rem; color: #1e293b; cursor: pointer; }
-    .weekly-item .options input[type="radio"] { accent-color: #0b3b4c; width: 16px; height: 16px; }
-    .weekly-item .answer-btn {
+    .weekly-detail .answer-btn {
       margin-top: 0.6rem;
       background: #0b3b4c;
       color: #fff;
       border: none;
-      padding: 0.3rem 1.2rem;
+      padding: 0.2rem 1.2rem;
       border-radius: 20px;
       font-size: 0.85rem;
       cursor: pointer;
-      transition: background 0.15s;
     }
-    .weekly-item .answer-btn:hover { background: #0a2f3d; }
-    .weekly-item .feedback { margin-top: 0.5rem; font-weight: 500; font-size: 0.9rem; }
+    .weekly-detail .feedback {
+      margin-top: 0.4rem;
+      font-weight: 500;
+      font-size: 0.9rem;
+    }
 
-    /* ===== 账号样式（与之前相同） ===== */
+    /* 账号样式 */
     .auth-tabs {
       display: flex;
       border-bottom: 2px solid #e9edf2;
@@ -567,6 +619,8 @@ header('Content-Type: text/html; charset=utf-8');
       transition: background 0.15s;
     }
     .user-profile .btn-logout:hover { background: #cbd5e1; }
+
+    /* Toast */
     .toast {
       position: fixed;
       bottom: 24px;
@@ -588,7 +642,7 @@ header('Content-Type: text/html; charset=utf-8');
     .toast.success { background: #0b6b4c; }
     .toast.error { background: #b91c1c; }
 
-    /* ===== 响应式 ===== */
+    /* 响应式 */
     @media (max-width: 820px) {
       .navbar { padding: 0 1.5rem; }
       .features-grid { grid-template-columns: 1fr 1fr; }
@@ -622,6 +676,7 @@ header('Content-Type: text/html; charset=utf-8');
       .book-container { min-height: 300px; }
       .book-pages { height: 280px; }
       .book-controls button { width: 40px; height: 40px; font-size: 1.2rem; }
+      .weekly-cards { grid-template-columns: 1fr; }
     }
     @media (max-width: 400px) {
       .book-pages { height: 220px; }
@@ -676,21 +731,20 @@ header('Content-Type: text/html; charset=utf-8');
       </div>
     </section>
 
-    <!-- 博物志翻页书 - 纯图片 -->
+    <!-- 博物志 -->
     <section class="page" id="page-museum">
       <div class="card">
         <div class="card-title"><i class="fas fa-book-open"></i>燕石博物志</div>
         <div class="book-container">
           <div class="book-pages" id="bookPages">
-            <!-- 循环生成8页，每页一张图片，图片名 01.jpg ~ 08.jpg -->
-            <div class="book-page active" data-index="0"><img src="01.jpg" alt="博物志 01"></div>
-            <div class="book-page" data-index="1"><img src="02.jpg" alt="博物志 02"></div>
-            <div class="book-page" data-index="2"><img src="03.jpg" alt="博物志 03"></div>
-            <div class="book-page" data-index="3"><img src="04.jpg" alt="博物志 04"></div>
-            <div class="book-page" data-index="4"><img src="05.jpg" alt="博物志 05"></div>
-            <div class="book-page" data-index="5"><img src="06.jpg" alt="博物志 06"></div>
-            <div class="book-page" data-index="6"><img src="07.jpg" alt="博物志 07"></div>
-            <div class="book-page" data-index="7"><img src="08.jpg" alt="博物志 08"></div>
+            <div class="book-page active" data-index="0"><img src="img/01.jpg" alt="博物志 01"></div>
+            <div class="book-page" data-index="1"><img src="img/02.jpg" alt="博物志 02"></div>
+            <div class="book-page" data-index="2"><img src="img/03.jpg" alt="博物志 03"></div>
+            <div class="book-page" data-index="3"><img src="img/04.jpg" alt="博物志 04"></div>
+            <div class="book-page" data-index="4"><img src="img/05.jpg" alt="博物志 05"></div>
+            <div class="book-page" data-index="5"><img src="img/06.jpg" alt="博物志 06"></div>
+            <div class="book-page" data-index="6"><img src="img/07.jpg" alt="博物志 07"></div>
+            <div class="book-page" data-index="7"><img src="img/08.jpg" alt="博物志 08"></div>
           </div>
           <div class="book-controls">
             <button id="prevPage" disabled><i class="fas fa-chevron-left"></i></button>
@@ -708,43 +762,8 @@ header('Content-Type: text/html; charset=utf-8');
     <section class="page" id="page-weekly">
       <div class="card">
         <div class="card-title"><i class="fas fa-calendar-week"></i>周常 · 化学挑战</div>
-        <div class="weekly-list">
-          <div class="weekly-item">
-            <h4>🧪 第1题 · 元素推断</h4>
-            <p>某元素原子核外电子排布为 2, 8, 7，它位于元素周期表的第几周期第几族？</p>
-            <div class="options">
-              <label><input type="radio" name="q1" value="A"> A. 第三周期 VIIA族</label>
-              <label><input type="radio" name="q1" value="B"> B. 第三周期 VIIB族</label>
-              <label><input type="radio" name="q1" value="C"> C. 第二周期 VIIA族</label>
-              <label><input type="radio" name="q1" value="D"> D. 第三周期 VIA族</label>
-            </div>
-            <button class="answer-btn" data-question="1" data-answer="A">查看答案</button>
-            <div class="feedback" id="feedback1"></div>
-          </div>
-          <div class="weekly-item">
-            <h4>🧪 第2题 · 化学键</h4>
-            <p>下列物质中，含有离子键和共价键的是？</p>
-            <div class="options">
-              <label><input type="radio" name="q2" value="A"> A. NaOH</label>
-              <label><input type="radio" name="q2" value="B"> B. H₂O</label>
-              <label><input type="radio" name="q2" value="C"> C. NaCl</label>
-              <label><input type="radio" name="q2" value="D"> D. CO₂</label>
-            </div>
-            <button class="answer-btn" data-question="2" data-answer="A">查看答案</button>
-            <div class="feedback" id="feedback2"></div>
-          </div>
-          <div class="weekly-item">
-            <h4>🧪 第3题 · 化学平衡</h4>
-            <p>对于可逆反应 2SO₂(g) + O₂(g) ⇌ 2SO₃(g)，增大压强，平衡向哪个方向移动？</p>
-            <div class="options">
-              <label><input type="radio" name="q3" value="A"> A. 正反应方向</label>
-              <label><input type="radio" name="q3" value="B"> B. 逆反应方向</label>
-              <label><input type="radio" name="q3" value="C"> C. 不移动</label>
-              <label><input type="radio" name="q3" value="D"> D. 无法判断</label>
-            </div>
-            <button class="answer-btn" data-question="3" data-answer="A">查看答案</button>
-            <div class="feedback" id="feedback3"></div>
-          </div>
+        <div id="weeklyContainer">
+          <div class="weekly-cards" id="weeklyCards"></div>
         </div>
       </div>
     </section>
@@ -767,16 +786,18 @@ header('Content-Type: text/html; charset=utf-8');
         <form class="auth-form active" id="loginForm">
           <div class="form-error" id="loginError"></div>
           <div class="form-success" id="loginSuccess"></div>
-          <label>邮箱</label>
-          <div class="input-group"><i class="fas fa-envelope"></i><input type="email" id="loginEmail" placeholder="请输入邮箱" required /></div>
+          <label>用户名 / 邮箱</label>
+          <div class="input-group"><i class="fas fa-user"></i><input type="text" id="loginUsername" placeholder="请输入用户名或邮箱" required /></div>
           <label>密码</label>
           <div class="input-group"><i class="fas fa-lock"></i><input type="password" id="loginPassword" placeholder="请输入密码" required /></div>
           <button type="submit" class="btn-primary">登录</button>
         </form>
-        <!-- 注册 -->
+        <!-- 注册（增加用户名） -->
         <form class="auth-form" id="registerForm">
           <div class="form-error" id="registerError"></div>
           <div class="form-success" id="registerSuccess"></div>
+          <label>用户名（唯一）</label>
+          <div class="input-group"><i class="fas fa-user"></i><input type="text" id="regUsername" placeholder="请设置用户名" required /></div>
           <label>邮箱</label>
           <div class="input-group"><i class="fas fa-envelope"></i><input type="email" id="regEmail" placeholder="请输入邮箱" required /></div>
           <label>密码（至少6位）</label>
@@ -817,14 +838,17 @@ header('Content-Type: text/html; charset=utf-8');
         async login(username, password) {
             return this._request('login', { username, password });
         },
-        async register(email, password, qq) {
-            return this._request('register', { email, password, qq });
+        async register(username, email, password, qq) {
+            return this._request('register', { username, email, password, qq });
         },
         async getCurrentUser() {
             return this._request('get_user');
         },
         async logout() {
             return this._request('logout');
+        },
+        async getWeekly() {
+            return this._request('get_weekly');
         }
       };
 
@@ -872,7 +896,7 @@ header('Content-Type: text/html; charset=utf-8');
           profile.classList.add('active');
           tabs.style.display = 'none';
           forms.forEach(f => f.style.display = 'none');
-          $('#profileEmail').textContent = user.email;
+          $('#profileEmail').textContent = user.username + ' (' + user.email + ')';
           $('#profileQQ').textContent = 'QQ: ' + (user.qq || '未设置');
         } else {
           profile.classList.remove('active');
@@ -887,6 +911,8 @@ header('Content-Type: text/html; charset=utf-8');
           $('#registerError').style.display = 'none';
           $('#registerSuccess').style.display = 'none';
         }
+        // 刷新周常（无需依赖登录）
+        loadWeekly();
       }
 
       async function initUser() {
@@ -924,20 +950,20 @@ header('Content-Type: text/html; charset=utf-8');
       // 登录
       $('#loginForm').addEventListener('submit', async function(e) {
         e.preventDefault();
-        const email = $('#loginEmail').value.trim();
+        const username = $('#loginUsername').value.trim();
         const password = $('#loginPassword').value.trim();
         const err = $('#loginError');
         const suc = $('#loginSuccess');
         err.style.display = 'none';
         suc.style.display = 'none';
-        if (!email || !password) { err.textContent = '请填写完整'; err.style.display = 'block'; return; }
+        if (!username || !password) { err.textContent = '请填写完整'; err.style.display = 'block'; return; }
         try {
-          const res = await API.login(email, password);
+          const res = await API.login(username, password);
           if (res.code === 0) {
             suc.textContent = '✅ 登录成功';
             suc.style.display = 'block';
             showToast('欢迎回来', 'success');
-            $('#loginEmail').value = '';
+            $('#loginUsername').value = '';
             $('#loginPassword').value = '';
             await initUser();
           } else {
@@ -953,6 +979,7 @@ header('Content-Type: text/html; charset=utf-8');
       // 注册
       $('#registerForm').addEventListener('submit', async function(e) {
         e.preventDefault();
+        const username = $('#regUsername').value.trim();
         const email = $('#regEmail').value.trim();
         const password = $('#regPassword').value.trim();
         const qq = $('#regQQ').value.trim();
@@ -960,8 +987,8 @@ header('Content-Type: text/html; charset=utf-8');
         const suc = $('#registerSuccess');
         err.style.display = 'none';
         suc.style.display = 'none';
-        if (!email || !password) {
-          err.textContent = '邮箱和密码为必填项';
+        if (!username || !email || !password) {
+          err.textContent = '用户名、邮箱和密码为必填项';
           err.style.display = 'block';
           return;
         }
@@ -971,11 +998,12 @@ header('Content-Type: text/html; charset=utf-8');
           return;
         }
         try {
-          const res = await API.register(email, password, qq);
+          const res = await API.register(username, email, password, qq);
           if (res.code === 0) {
             suc.textContent = '🎉 ' + res.message;
             suc.style.display = 'block';
             showToast('注册成功，请登录', 'success');
+            $('#regUsername').value = '';
             $('#regEmail').value = '';
             $('#regPassword').value = '';
             $('#regQQ').value = '';
@@ -1001,6 +1029,82 @@ header('Content-Type: text/html; charset=utf-8');
           showToast('退出失败', 'error');
         }
       });
+
+      // ========== 周常加载 ==========
+      async function loadWeekly() {
+        const container = $('#weeklyCards');
+        try {
+          const res = await API.getWeekly();
+          if (res.code === 0 && res.data.length > 0) {
+            let html = '';
+            res.data.forEach((item, index) => {
+              const optionsHtml = item.options.map((opt, i) => {
+                const letter = String.fromCharCode(65 + i); // A, B, C, D
+                return `<label><input type="radio" name="q_${item.id}" value="${letter}"> ${opt}</label>`;
+              }).join('');
+              html += `
+                <div class="weekly-card" data-id="${item.id}">
+                  <div class="title">📅 ${item.title}</div>
+                  <div class="meta">
+                    <span>👩‍🏫 ${item.teacher}</span>
+                    <span>📅 ${new Date(item.created_at).toLocaleDateString()}</span>
+                  </div>
+                  <div class="weekly-detail">
+                    <div class="content">${item.content}</div>
+                    <div class="options">${optionsHtml}</div>
+                    <button class="answer-btn" data-id="${item.id}" data-answer="${item.answer}">查看答案</button>
+                    <div class="feedback" id="feedback_${item.id}"></div>
+                  </div>
+                </div>
+              `;
+            });
+            container.innerHTML = html;
+
+            // 点击卡片展开/收起
+            container.querySelectorAll('.weekly-card').forEach(card => {
+              const detail = card.querySelector('.weekly-detail');
+              card.addEventListener('click', function(e) {
+                // 避免点击按钮时也触发
+                if (e.target.closest('.answer-btn') || e.target.closest('input')) return;
+                const isOpen = detail.classList.contains('open');
+                // 关闭所有其他卡片
+                container.querySelectorAll('.weekly-detail').forEach(d => d.classList.remove('open'));
+                if (!isOpen) {
+                  detail.classList.add('open');
+                }
+              });
+            });
+
+            // 答案按钮
+            container.querySelectorAll('.answer-btn').forEach(btn => {
+              btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const id = this.dataset.id;
+                const correct = this.dataset.answer;
+                const feedback = document.getElementById('feedback_' + id);
+                const selected = document.querySelector(`input[name="q_${id}"]:checked`);
+                if (!selected) {
+                  feedback.textContent = '请先选择一个选项';
+                  feedback.style.color = '#d4a373';
+                  return;
+                }
+                const userAnswer = selected.value;
+                if (userAnswer === correct) {
+                  feedback.textContent = '✅ 回答正确！';
+                  feedback.style.color = '#0b6b4c';
+                } else {
+                  feedback.textContent = '❌ 回答错误，正确答案是 ' + correct;
+                  feedback.style.color = '#b91c1c';
+                }
+              });
+            });
+          } else {
+            container.innerHTML = '<p style="color:#94a3b8; text-align:center; padding:1rem 0;">暂无周常题目，请关注后续更新。</p>';
+          }
+        } catch (e) {
+          container.innerHTML = '<p style="color:#b91c1c;">加载失败，请稍后重试。</p>';
+        }
+      }
 
       // ========== 翻页书 ==========
       const pages_book = $$('.book-page');
@@ -1036,29 +1140,6 @@ header('Content-Type: text/html; charset=utf-8');
       });
       updateBook(0);
 
-      // ========== 周常答题 ==========
-      $$('.answer-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-          const qNum = this.dataset.question;
-          const correct = this.dataset.answer;
-          const feedback = document.getElementById('feedback' + qNum);
-          const selected = document.querySelector(`input[name="q${qNum}"]:checked`);
-          if (!selected) {
-            feedback.textContent = '请先选择一个选项';
-            feedback.style.color = '#d4a373';
-            return;
-          }
-          const userAnswer = selected.value;
-          if (userAnswer === correct) {
-            feedback.textContent = '✅ 回答正确！';
-            feedback.style.color = '#0b6b4c';
-          } else {
-            feedback.textContent = '❌ 回答错误，正确答案是 ' + correct;
-            feedback.style.color = '#b91c1c';
-          }
-        });
-      });
-
       // ========== 启动 ==========
       initUser();
 
@@ -1066,7 +1147,7 @@ header('Content-Type: text/html; charset=utf-8');
         if (!e.target.closest('.navbar')) navList.classList.remove('open');
       });
 
-      console.log('GSKChem 平台已启动（博物志纯图片版）');
+      console.log('GSKChem 前台启动 (支持用户名)');
     })();
   </script>
 </body>
