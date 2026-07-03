@@ -20,7 +20,7 @@ if (!is_dir('uploads')) {
 }
 
 function gsk_config() {
-    $host = 'db';
+    $host = 'lv8girl-db';
     $dbname = 'lv8girl';
     $db_user = 'lv8girl';
     $db_pass = 'yourpasswd';
