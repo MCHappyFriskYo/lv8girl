@@ -1,8 +1,8 @@
 <?php
 /**
- * LunaticChO 主入口
+ * LunaticChO 主入口 - 完整版（含所有 API）
  * 根据 ?page= 参数加载不同页面
- * 所有 API 请求仍由本文件处理（action 参数）
+ * 根据 ?action= 参数处理 API 请求
  */
 
 error_reporting(E_ALL);
@@ -15,7 +15,7 @@ function gsk_config() {
     $host = 'db';
     $dbname = 'lv8girl';
     $db_user = 'lv8girl';
-    $db_pass = 'yourpasswd'; // 请修改
+    $db_pass = 'yourpasswd'; // 请修改为实际密码
     try {
         $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $db_user, $db_pass);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -36,10 +36,354 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// ========== 处理 API 请求（与之前完全相同，省略以节省篇幅）==========
-// 实际部署时请复制完整的 API 处理逻辑（从 if (isset($_REQUEST['action'])) 到结束）
-// 由于篇幅，此处省略，但必须包含所有 action 处理。
-// 您可以直接使用之前版本的 API 部分，或者在下文提供完整代码。
+// ========== 处理 API 请求 ==========
+if (isset($_REQUEST['action'])) {
+    $action = $_REQUEST['action'];
+    try {
+        $pdo = gsk_config();
+        session_start();
+
+        // ---------- 登录 ----------
+        if ($action === 'login') {
+            $input = json_decode(file_get_contents('php://input'), true);
+            $login = trim($input['username'] ?? '');
+            $password = trim($input['password'] ?? '');
+            if (!$login || !$password) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '请填写用户名/邮箱和密码']);
+                exit;
+            }
+            $stmt = $pdo->prepare("SELECT * FROM gsk_users WHERE username = ? OR email = ?");
+            $stmt->execute([$login, $login]);
+            $user = $stmt->fetch();
+            if (!$user || !password_verify($password, $user['password'])) {
+                http_response_code(401);
+                echo json_encode(['code' => 40001, 'message' => '用户名/邮箱或密码错误']);
+                exit;
+            }
+            if ($user['status'] !== 'ACTIVE') {
+                http_response_code(403);
+                echo json_encode(['code' => 40300, 'message' => '账号未激活，请联系管理员']);
+                exit;
+            }
+            $_SESSION['user_id'] = $user['id'];
+            $_SESSION['username'] = $user['username'];
+            $_SESSION['email'] = $user['email'];
+            $_SESSION['role'] = $user['role'];
+            $_SESSION['tenant_id'] = $user['tenant_id'];
+            echo json_encode([
+                'code' => 0,
+                'data' => [
+                    'accessToken' => session_id(),
+                    'expiresIn' => 900,
+                    'user' => [
+                        'id' => $user['id'],
+                        'username' => $user['username'],
+                        'email' => $user['email'],
+                        'role' => $user['role'],
+                        'avatar' => $user['avatar'] ?? null,
+                        'tenantId' => $user['tenant_id']
+                    ]
+                ]
+            ]);
+            exit;
+        }
+
+        // ---------- 注册 ----------
+        if ($action === 'register') {
+            $input = json_decode(file_get_contents('php://input'), true);
+            $username = trim($input['username'] ?? '');
+            $email = trim($input['email'] ?? '');
+            $password = trim($input['password'] ?? '');
+            $qq = trim($input['qq'] ?? '');
+
+            if (!$username || !$email || !$password) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '用户名、邮箱和密码为必填项']);
+                exit;
+            }
+            if (strlen($username) < 2 || strlen($username) > 30) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '用户名长度2-30位']);
+                exit;
+            }
+            $stmt = $pdo->prepare("SELECT id FROM gsk_users WHERE username = ?");
+            $stmt->execute([$username]);
+            if ($stmt->fetch()) {
+                http_response_code(409);
+                echo json_encode(['code' => 40900, 'message' => '该用户名已被使用']);
+                exit;
+            }
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '邮箱格式无效']);
+                exit;
+            }
+            if (strlen($password) < 6) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '密码至少6位']);
+                exit;
+            }
+
+            $stmt = $pdo->prepare("SELECT id FROM gsk_users WHERE email = ?");
+            $stmt->execute([$email]);
+            if ($stmt->fetch()) {
+                http_response_code(409);
+                echo json_encode(['code' => 40900, 'message' => '该邮箱已注册']);
+                exit;
+            }
+
+            $hashed = password_hash($password, PASSWORD_DEFAULT);
+
+            $check = $pdo->query("SHOW COLUMNS FROM gsk_users LIKE 'real_name'");
+            $hasRealName = $check->rowCount() > 0;
+
+            if ($hasRealName) {
+                $stmt = $pdo->prepare("INSERT INTO gsk_users (username, email, password, qq, role, tenant_id, status, real_name) VALUES (?, ?, ?, ?, 'MARKER', 'school_a', 'ACTIVE', '')");
+                $stmt->execute([$username, $email, $hashed, $qq]);
+            } else {
+                $stmt = $pdo->prepare("INSERT INTO gsk_users (username, email, password, qq, role, tenant_id, status) VALUES (?, ?, ?, ?, 'MARKER', 'school_a', 'ACTIVE')");
+                $stmt->execute([$username, $email, $hashed, $qq]);
+            }
+
+            $userId = $pdo->lastInsertId();
+
+            echo json_encode([
+                'code' => 0,
+                'message' => '注册成功，请登录',
+                'data' => ['userId' => $userId]
+            ]);
+            exit;
+        }
+
+        // ---------- 获取当前用户 ----------
+        if ($action === 'get_user') {
+            if (!isset($_SESSION['user_id'])) {
+                http_response_code(401);
+                echo json_encode(['code' => 40100, 'message' => '未登录']);
+                exit;
+            }
+            $stmt = $pdo->prepare("SELECT id, username, email, qq, role, avatar FROM gsk_users WHERE id = ?");
+            $stmt->execute([$_SESSION['user_id']]);
+            $user = $stmt->fetch();
+            if (!$user) {
+                http_response_code(404);
+                echo json_encode(['code' => 40400, 'message' => '用户不存在']);
+                exit;
+            }
+            echo json_encode(['code' => 0, 'data' => $user]);
+            exit;
+        }
+
+        // ---------- 更新头像 ----------
+        if ($action === 'update_avatar') {
+            if (!isset($_SESSION['user_id'])) {
+                http_response_code(401);
+                echo json_encode(['code' => 40100, 'message' => '未登录']);
+                exit;
+            }
+            $input = json_decode(file_get_contents('php://input'), true);
+            $avatar = trim($input['avatar'] ?? '');
+            if (empty($avatar)) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '头像数据不能为空']);
+                exit;
+            }
+            if (!preg_match('/^data:image\/(jpeg|png|gif|webp);base64,/', $avatar)) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '图片格式不支持，请上传 jpg/png/gif/webp']);
+                exit;
+            }
+            $size = strlen($avatar);
+            if ($size > 2.5 * 1024 * 1024) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '图片过大，请压缩后上传']);
+                exit;
+            }
+            $stmt = $pdo->prepare("UPDATE gsk_users SET avatar = ? WHERE id = ?");
+            $stmt->execute([$avatar, $_SESSION['user_id']]);
+            echo json_encode(['code' => 0, 'message' => '头像更新成功']);
+            exit;
+        }
+
+        // ---------- 登出 ----------
+        if ($action === 'logout') {
+            session_destroy();
+            echo json_encode(['code' => 0, 'message' => '已登出']);
+            exit;
+        }
+
+        // ---------- 获取已发布的考试列表 ----------
+        if ($action === 'get_exams') {
+            try {
+                $stmt = $pdo->query("SHOW TABLES LIKE 'gsk_exams'");
+                if ($stmt->rowCount() == 0) {
+                    echo json_encode(['code' => 40400, 'message' => '表 gsk_exams 不存在']);
+                    exit;
+                }
+                $stmt = $pdo->query("SELECT * FROM gsk_exams WHERE status = 'published' ORDER BY published_at DESC");
+                $exams = $stmt->fetchAll();
+                foreach ($exams as &$exam) {
+                    $stmt2 = $pdo->prepare("SELECT COUNT(*) as qcount FROM gsk_questions WHERE exam_id = ?");
+                    $stmt2->execute([$exam['id']]);
+                    $exam['question_count'] = $stmt2->fetch()['qcount'];
+                    $stmt2 = $pdo->prepare("SELECT SUM(score) as total FROM gsk_questions WHERE exam_id = ?");
+                    $stmt2->execute([$exam['id']]);
+                    $exam['total_score'] = $stmt2->fetch()['total'] ?? 0;
+                }
+                echo json_encode(['code' => 0, 'data' => $exams]);
+            } catch (Exception $e) {
+                echo json_encode(['code' => 50000, 'message' => '数据库错误：' . $e->getMessage()]);
+            }
+            exit;
+        }
+
+        // ---------- 获取用户在各考试中的答题状态 ----------
+        if ($action === 'get_user_exam_status') {
+            if (!isset($_SESSION['user_id'])) {
+                echo json_encode(['code' => 40100, 'message' => '未登录']);
+                exit;
+            }
+            $user_id = $_SESSION['user_id'];
+            $stmt = $pdo->query("SELECT * FROM gsk_exams WHERE status = 'published' ORDER BY published_at DESC");
+            $exams = $stmt->fetchAll();
+            $result = [];
+            foreach ($exams as $exam) {
+                $stmt2 = $pdo->prepare("SELECT COUNT(*) as qcount FROM gsk_questions WHERE exam_id = ?");
+                $stmt2->execute([$exam['id']]);
+                $qcount = $stmt2->fetch()['qcount'];
+                
+                $stmt2 = $pdo->prepare("SELECT COUNT(*) as acount FROM gsk_answers WHERE exam_id = ? AND user_id = ?");
+                $stmt2->execute([$exam['id'], $user_id]);
+                $acount = $stmt2->fetch()['acount'];
+                
+                $stmt2 = $pdo->prepare("SELECT total_score, status FROM gsk_results WHERE exam_id = ? AND user_id = ?");
+                $stmt2->execute([$exam['id'], $user_id]);
+                $result_data = $stmt2->fetch();
+                
+                $exam['question_count'] = $qcount;
+                $exam['answered_count'] = $acount;
+                $exam['score'] = $result_data ? $result_data['total_score'] : null;
+                $exam['graded'] = $result_data && $result_data['status'] === 'graded';
+                $exam['has_answered'] = $acount > 0;
+                $result[] = $exam;
+            }
+            echo json_encode(['code' => 0, 'data' => $result]);
+            exit;
+        }
+
+        // ---------- 获取考试题目 ----------
+        if ($action === 'get_exam_questions') {
+            $exam_id = intval($_GET['exam_id'] ?? 0);
+            if (!$exam_id) {
+                echo json_encode(['code' => 40001, 'message' => '缺少考试ID']);
+                exit;
+            }
+            $stmt = $pdo->prepare("SELECT * FROM gsk_questions WHERE exam_id = ? ORDER BY sort_order, id");
+            $stmt->execute([$exam_id]);
+            $questions = $stmt->fetchAll();
+            $stmt2 = $pdo->prepare("SELECT title, description FROM gsk_exams WHERE id = ?");
+            $stmt2->execute([$exam_id]);
+            $exam = $stmt2->fetch();
+            echo json_encode(['code' => 0, 'data' => ['exam' => $exam, 'questions' => $questions]]);
+            exit;
+        }
+
+        // ---------- 获取用户答案（答题回顾） ----------
+        if ($action === 'get_user_answers') {
+            if (!isset($_SESSION['user_id'])) {
+                echo json_encode(['code' => 40100, 'message' => '未登录']);
+                exit;
+            }
+            $exam_id = intval($_GET['exam_id'] ?? 0);
+            if (!$exam_id) {
+                echo json_encode(['code' => 40001, 'message' => '缺少考试ID']);
+                exit;
+            }
+            $user_id = $_SESSION['user_id'];
+            $stmt = $pdo->prepare("SELECT q.id as question_id, q.type, q.content, q.options, q.answer as correct_answer, q.score as max_score,
+                                          a.id as answer_id, a.answer as user_answer, a.score, a.status
+                                   FROM gsk_questions q
+                                   LEFT JOIN gsk_answers a ON a.question_id = q.id AND a.user_id = ?
+                                   WHERE q.exam_id = ?
+                                   ORDER BY q.sort_order, q.id");
+            $stmt->execute([$user_id, $exam_id]);
+            $answers = $stmt->fetchAll();
+            $stmt2 = $pdo->prepare("SELECT title FROM gsk_exams WHERE id = ?");
+            $stmt2->execute([$exam_id]);
+            $exam = $stmt2->fetch();
+            $stmt3 = $pdo->prepare("SELECT total_score, status FROM gsk_results WHERE exam_id = ? AND user_id = ?");
+            $stmt3->execute([$exam_id, $user_id]);
+            $result = $stmt3->fetch();
+            echo json_encode(['code' => 0, 'data' => ['exam' => $exam, 'questions' => $answers, 'result' => $result]]);
+            exit;
+        }
+
+        // ---------- 提交答案 ----------
+        if ($action === 'submit_answers') {
+            if (!isset($_SESSION['user_id'])) {
+                echo json_encode(['code' => 40100, 'message' => '请先登录']);
+                exit;
+            }
+            $input = json_decode(file_get_contents('php://input'), true);
+            $exam_id = $input['exam_id'];
+            $answers = $input['answers'];
+            $user_id = $_SESSION['user_id'];
+            
+            $pdo->beginTransaction();
+            try {
+                foreach ($answers as $qid => $answer) {
+                    if (empty($answer)) continue;
+                    $stmt = $pdo->prepare("INSERT INTO gsk_answers (exam_id, question_id, user_id, answer, status) VALUES (?, ?, ?, ?, 'pending') ON DUPLICATE KEY UPDATE answer = VALUES(answer), status = 'pending', score = NULL");
+                    $stmt->execute([$exam_id, $qid, $user_id, $answer]);
+                }
+                $pdo->commit();
+                echo json_encode(['code' => 0, 'message' => '答案提交成功！']);
+            } catch (Exception $e) {
+                $pdo->rollBack();
+                echo json_encode(['code' => 50000, 'message' => '提交失败：' . $e->getMessage()]);
+            }
+            exit;
+        }
+
+        // ---------- 获取考试成绩和排行榜 ----------
+        if ($action === 'get_ranking') {
+            $exam_id = intval($_GET['exam_id'] ?? 0);
+            if (!$exam_id) {
+                echo json_encode(['code' => 40001, 'message' => '缺少考试ID']);
+                exit;
+            }
+            $stmt = $pdo->prepare("SELECT u.username, u.avatar, r.total_score, r.status 
+                                   FROM gsk_results r 
+                                   JOIN gsk_users u ON r.user_id = u.id 
+                                   WHERE r.exam_id = ? AND r.status = 'graded' 
+                                   ORDER BY r.total_score DESC");
+            $stmt->execute([$exam_id]);
+            $ranking = $stmt->fetchAll();
+            $stmt2 = $pdo->prepare("SELECT title FROM gsk_exams WHERE id = ?");
+            $stmt2->execute([$exam_id]);
+            $exam = $stmt2->fetch();
+            $myScore = null;
+            if (isset($_SESSION['user_id'])) {
+                $stmt = $pdo->prepare("SELECT total_score, status FROM gsk_results WHERE exam_id = ? AND user_id = ?");
+                $stmt->execute([$exam_id, $_SESSION['user_id']]);
+                $myScore = $stmt->fetch();
+            }
+            echo json_encode(['code' => 0, 'data' => ['exam' => $exam, 'ranking' => $ranking, 'myScore' => $myScore]]);
+            exit;
+        }
+
+        // 未知 action
+        http_response_code(400);
+        echo json_encode(['code' => 40001, 'message' => '无效的操作']);
+        exit;
+
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['code' => 50000, 'message' => '服务器错误：' . $e->getMessage()]);
+        exit;
+    }
+}
 
 // ================================================================
 // 没有 action 参数，输出 HTML 页面
@@ -53,9 +397,6 @@ $allowed_pages = ['home', 'exam', 'museum', 'weekly', 'account'];
 if (!in_array($page, $allowed_pages)) {
     $page = 'home';
 }
-
-// 定义常量供页面文件使用
-define('CURRENT_PAGE', $page);
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -66,8 +407,9 @@ define('CURRENT_PAGE', $page);
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <style>
-    /* ===== 全局样式（与之前一致） ===== */
-    /* 此处省略样式，请复制之前的完整样式 */
+    /* 样式（与之前完全相同，省略以节省篇幅，但实际部署需保留） */
+    /* 由于长度限制，这里省略样式，请从之前回答中复制完整样式 */
+    /* 为确保可用，请将之前完整的样式粘贴在此 */
     * { margin:0; padding:0; box-sizing:border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -222,514 +564,122 @@ define('CURRENT_PAGE', $page);
     .exam-empty i { font-size: 4rem; color: #d4a373; margin-bottom: 1rem; display: block; }
     .exam-empty h3 { font-size: 1.5rem; color: #0b3b4c; margin-bottom: 0.5rem; }
 
-    /* ===== 主页进度卡片 ===== */
-    .progress-card {
-      background: #f8fafc;
-      border-radius: 10px;
-      padding: 1.2rem 1.5rem;
-      margin-bottom: 0.8rem;
-      border-left: 4px solid #d4a373;
-      cursor: pointer;
-      transition: background 0.15s, transform 0.15s;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-    }
+    .progress-card { background: #f8fafc; border-radius: 10px; padding: 1.2rem 1.5rem; margin-bottom: 0.8rem; border-left: 4px solid #d4a373; cursor: pointer; transition: background 0.15s, transform 0.15s; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
     .progress-card:hover { background: #f1f5f9; transform: translateX(4px); }
     .progress-card .info { flex: 1; }
     .progress-card .title { font-weight: 600; color: #0b3b4c; font-size: 1rem; }
     .progress-card .meta { font-size: 0.85rem; color: #64748b; }
-    .status-badge {
-      display: inline-block;
-      padding: 0.15rem 0.8rem;
-      border-radius: 20px;
-      font-size: 0.8rem;
-      font-weight: 600;
-      white-space: nowrap;
-    }
+    .status-badge { display: inline-block; padding: 0.15rem 0.8rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
     .status-not-started { background: #e2e8f0; color: #475569; }
     .status-pending { background: #fef3c7; color: #b45309; }
     .status-graded { background: #d1fae5; color: #0b6b4c; }
-    .no-exams-msg {
-      color: #94a3b8;
-      text-align: center;
-      padding: 1.5rem 0;
-    }
+    .no-exams-msg { color: #94a3b8; text-align: center; padding: 1.5rem 0; }
     .no-exams-msg i { font-size: 2.5rem; display: block; margin-bottom: 0.5rem; color: #d4a373; }
 
-    /* ===== 博物志 PDF 阅读器 ===== */
-    .pdf-container {
-      max-width: 900px;
-      margin: 0 auto;
-      background: #ffffff;
-      border-radius: 12px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.06);
-      padding: 1rem;
-      border: 1px solid #e9edf2;
-    }
-    .pdf-viewer {
-      position: relative;
-      width: 100%;
-      min-height: 500px;
-      background: #f8fafc;
-      border-radius: 8px;
-      overflow: hidden;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .pdf-viewer canvas {
-      max-width: 100%;
-      height: auto;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-    }
-    .pdf-controls {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 1.5rem;
-      margin-top: 1rem;
-      padding: 0.6rem;
-      background: #f8fafc;
-      border-radius: 8px;
-      flex-wrap: wrap;
-    }
-    .pdf-controls button {
-      background: #0b3b4c;
-      color: #fff;
-      border: none;
-      padding: 0.4rem 1.2rem;
-      border-radius: 20px;
-      cursor: pointer;
-      transition: background 0.15s;
-      font-size: 0.9rem;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-    }
+    .pdf-container { max-width: 900px; margin: 0 auto; background: #ffffff; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); padding: 1rem; border: 1px solid #e9edf2; }
+    .pdf-viewer { position: relative; width: 100%; min-height: 500px; background: #f8fafc; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+    .pdf-viewer canvas { max-width: 100%; height: auto; box-shadow: 0 2px 10px rgba(0,0,0,0.08); }
+    .pdf-controls { display: flex; justify-content: center; align-items: center; gap: 1.5rem; margin-top: 1rem; padding: 0.6rem; background: #f8fafc; border-radius: 8px; flex-wrap: wrap; }
+    .pdf-controls button { background: #0b3b4c; color: #fff; border: none; padding: 0.4rem 1.2rem; border-radius: 20px; cursor: pointer; transition: background 0.15s; font-size: 0.9rem; display: inline-flex; align-items: center; gap: 6px; }
     .pdf-controls button:hover { background: #0a2f3d; }
     .pdf-controls button:disabled { opacity: 0.4; cursor: not-allowed; }
-    .pdf-controls .page-info {
-      font-weight: 600;
-      color: #0b3b4c;
-      min-width: 80px;
-      text-align: center;
-    }
-    .pdf-loading {
-      text-align: center;
-      padding: 2rem;
-      color: #94a3b8;
-    }
+    .pdf-controls .page-info { font-weight: 600; color: #0b3b4c; min-width: 80px; text-align: center; }
+    .pdf-loading { text-align: center; padding: 2rem; color: #94a3b8; }
     .pdf-loading i { font-size: 2.5rem; display: block; margin-bottom: 0.5rem; }
 
-    /* ===== 周常页面 ===== */
-    .exam-cards {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 1.2rem;
-      margin-top: 1rem;
-    }
-    .exam-card-item {
-      background: #f8fafc;
-      border-radius: 10px;
-      padding: 1.2rem 1.5rem;
-      border-left: 4px solid #d4a373;
-      cursor: pointer;
-      transition: background 0.15s, transform 0.15s;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.04);
-    }
+    .exam-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.2rem; margin-top: 1rem; }
+    .exam-card-item { background: #f8fafc; border-radius: 10px; padding: 1.2rem 1.5rem; border-left: 4px solid #d4a373; cursor: pointer; transition: background 0.15s, transform 0.15s; box-shadow: 0 2px 6px rgba(0,0,0,0.04); }
     .exam-card-item:hover { background: #f1f5f9; transform: translateY(-2px); }
     .exam-card-item .title { font-size: 1.1rem; font-weight: 600; color: #0b3b4c; }
-    .exam-card-item .meta {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.85rem;
-      color: #64748b;
-      margin-top: 0.3rem;
-    }
-    .exam-card-item .badge-status {
-      display: inline-block;
-      padding: 0.1rem 0.6rem;
-      border-radius: 20px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      background: #d1fae5;
-      color: #0b6b4c;
-    }
+    .exam-card-item .meta { display: flex; justify-content: space-between; font-size: 0.85rem; color: #64748b; margin-top: 0.3rem; }
+    .exam-card-item .badge-status { display: inline-block; padding: 0.1rem 0.6rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600; background: #d1fae5; color: #0b6b4c; }
 
-    .ranking-section {
-      background: #f8fafc;
-      border-radius: 10px;
-      padding: 1.2rem 1.5rem;
-      margin-bottom: 1.5rem;
-      border: 1px solid #e9edf2;
-    }
-    .ranking-section h3 {
-      color: #0b3b4c;
-      margin-bottom: 0.8rem;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    .ranking-list {
-      display: flex;
-      flex-direction: column;
-      gap: 0.3rem;
-    }
-    .ranking-row {
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      padding: 0.3rem 0.5rem;
-      border-bottom: 1px solid #e9edf2;
-    }
-    .ranking-row .rank {
-      font-weight: 700;
-      width: 30px;
-      text-align: center;
-    }
+    .ranking-section { background: #f8fafc; border-radius: 10px; padding: 1.2rem 1.5rem; margin-bottom: 1.5rem; border: 1px solid #e9edf2; }
+    .ranking-section h3 { color: #0b3b4c; margin-bottom: 0.8rem; display: flex; align-items: center; gap: 0.5rem; }
+    .ranking-list { display: flex; flex-direction: column; gap: 0.3rem; }
+    .ranking-row { display: flex; align-items: center; gap: 1rem; padding: 0.3rem 0.5rem; border-bottom: 1px solid #e9edf2; }
+    .ranking-row .rank { font-weight: 700; width: 30px; text-align: center; }
     .ranking-row .rank.gold { color: #f59e0b; }
     .ranking-row .rank.silver { color: #94a3b8; }
     .ranking-row .rank.bronze { color: #d97706; }
     .ranking-row .name { flex: 1; }
     .ranking-row .score { font-weight: 700; color: #0b3b4c; }
 
-    /* 答题模式 */
     .exam-container { max-width: 800px; margin: 0 auto; }
-    .exam-header {
-      text-align: center;
-      padding-bottom: 1rem;
-      border-bottom: 2px solid #e9edf2;
-      margin-bottom: 1.5rem;
-    }
+    .exam-header { text-align: center; padding-bottom: 1rem; border-bottom: 2px solid #e9edf2; margin-bottom: 1.5rem; }
     .exam-header h2 { color: #0b3b4c; font-size: 1.8rem; }
     .exam-header p { color: #64748b; }
-    .question-item {
-      background: #f8fafc;
-      padding: 1.2rem 1.5rem;
-      border-radius: 8px;
-      margin-bottom: 1rem;
-      border: 1px solid #e9edf2;
-    }
-    .question-item .q-header {
-      display: flex;
-      justify-content: space-between;
-      font-weight: 600;
-      color: #0b3b4c;
-      margin-bottom: 0.5rem;
-    }
-    .question-item .q-type {
-      font-weight: 400;
-      font-size: 0.8rem;
-      padding: 0.1rem 0.6rem;
-      border-radius: 12px;
-      background: #dbeafe;
-      color: #1d4ed8;
-    }
+    .question-item { background: #f8fafc; padding: 1.2rem 1.5rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid #e9edf2; }
+    .question-item .q-header { display: flex; justify-content: space-between; font-weight: 600; color: #0b3b4c; margin-bottom: 0.5rem; }
+    .question-item .q-type { font-weight: 400; font-size: 0.8rem; padding: 0.1rem 0.6rem; border-radius: 12px; background: #dbeafe; color: #1d4ed8; }
     .question-item .q-content { margin-bottom: 0.8rem; color: #1e293b; }
     .question-item .q-content img { max-width: 100%; height: auto; border-radius: 4px; margin: 0.5rem 0; }
-    .question-item .q-options label {
-      display: flex;
-      align-items: center;
-      gap: 0.6rem;
-      padding: 0.3rem 0;
-      cursor: pointer;
-    }
-    .question-item .q-options input[type="radio"],
-    .question-item .q-options input[type="checkbox"] {
-      accent-color: #0b3b4c;
-      width: 16px;
-      height: 16px;
-      flex-shrink: 0;
-    }
-    .question-item .q-options textarea {
-      width: 100%;
-      padding: 0.5rem;
-      border: 1px solid #d1d9e6;
-      border-radius: 6px;
-      font-size: 0.95rem;
-      min-height: 60px;
-      font-family: inherit;
-    }
-    .question-item .q-options input[type="text"] {
-      width: 100%;
-      padding: 0.5rem;
-      border: 1px solid #d1d9e6;
-      border-radius: 6px;
-      font-size: 0.95rem;
-    }
-    .btn-submit-exam {
-      width: 100%;
-      padding: 0.8rem;
-      background: #0b3b4c;
-      color: #fff;
-      border: none;
-      border-radius: 8px;
-      font-size: 1.1rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
+    .question-item .q-options label { display: flex; align-items: center; gap: 0.6rem; padding: 0.3rem 0; cursor: pointer; }
+    .question-item .q-options input[type="radio"], .question-item .q-options input[type="checkbox"] { accent-color: #0b3b4c; width: 16px; height: 16px; flex-shrink: 0; }
+    .question-item .q-options textarea { width: 100%; padding: 0.5rem; border: 1px solid #d1d9e6; border-radius: 6px; font-size: 0.95rem; min-height: 60px; font-family: inherit; }
+    .question-item .q-options input[type="text"] { width: 100%; padding: 0.5rem; border: 1px solid #d1d9e6; border-radius: 6px; font-size: 0.95rem; }
+    .btn-submit-exam { width: 100%; padding: 0.8rem; background: #0b3b4c; color: #fff; border: none; border-radius: 8px; font-size: 1.1rem; font-weight: 600; cursor: pointer; transition: background 0.15s; }
     .btn-submit-exam:hover { background: #0a2f3d; }
     .btn-submit-exam:disabled { opacity: 0.6; cursor: not-allowed; }
 
-    /* 排行榜独立视图 */
     .ranking-container { max-width: 600px; margin: 0 auto; }
-    .ranking-item {
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      padding: 0.6rem 1rem;
-      border-bottom: 1px solid #e9edf2;
-    }
-    .ranking-item .rank {
-      font-weight: 700;
-      font-size: 1.1rem;
-      color: #0b3b4c;
-      width: 40px;
-      text-align: center;
-    }
+    .ranking-item { display: flex; align-items: center; gap: 1rem; padding: 0.6rem 1rem; border-bottom: 1px solid #e9edf2; }
+    .ranking-item .rank { font-weight: 700; font-size: 1.1rem; color: #0b3b4c; width: 40px; text-align: center; }
     .ranking-item .rank.gold { color: #f59e0b; }
     .ranking-item .rank.silver { color: #94a3b8; }
     .ranking-item .rank.bronze { color: #d97706; }
-    .ranking-item .avatar-small {
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
-      background: #dbeafe;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      overflow: hidden;
-      flex-shrink: 0;
-    }
-    .ranking-item .avatar-small img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
+    .ranking-item .avatar-small { width: 36px; height: 36px; border-radius: 50%; background: #dbeafe; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
+    .ranking-item .avatar-small img { width: 100%; height: 100%; object-fit: cover; }
     .ranking-item .name { flex: 1; font-weight: 500; }
     .ranking-item .score { font-weight: 700; color: #0b3b4c; }
-    .my-score {
-      background: #fef3c7;
-      padding: 1rem;
-      border-radius: 8px;
-      text-align: center;
-      margin-top: 1rem;
-      border: 2px solid #f59e0b;
-    }
+    .my-score { background: #fef3c7; padding: 1rem; border-radius: 8px; text-align: center; margin-top: 1rem; border: 2px solid #f59e0b; }
     .my-score .big-score { font-size: 2rem; font-weight: 700; color: #0b3b4c; }
 
-    /* 答题回顾 */
-    .answer-review .user-answer {
-      background: #f1f5f9;
-      padding: 0.3rem 0.8rem;
-      border-radius: 4px;
-      display: inline-block;
-      margin: 0.2rem 0;
-    }
-    .answer-review .score-badge {
-      font-weight: 700;
-      padding: 0.1rem 0.8rem;
-      border-radius: 20px;
-      font-size: 0.85rem;
-    }
+    .answer-review .user-answer { background: #f1f5f9; padding: 0.3rem 0.8rem; border-radius: 4px; display: inline-block; margin: 0.2rem 0; }
+    .answer-review .score-badge { font-weight: 700; padding: 0.1rem 0.8rem; border-radius: 20px; font-size: 0.85rem; }
     .answer-review .score-badge.correct { background: #d1fae5; color: #0b6b4c; }
     .answer-review .score-badge.wrong { background: #fce4ec; color: #b91c1c; }
     .answer-review .score-badge.pending { background: #fef3c7; color: #b45309; }
 
-    /* 账号样式 */
-    .auth-tabs {
-      display: flex;
-      border-bottom: 2px solid #e9edf2;
-      margin-bottom: 1.5rem;
-    }
-    .auth-tabs button {
-      flex: 1;
-      padding: 0.6rem 0;
-      border: none;
-      background: transparent;
-      font-size: 1rem;
-      font-weight: 600;
-      color: #64748b;
-      cursor: pointer;
-      border-bottom: 2px solid transparent;
-      transition: 0.15s;
-    }
+    .auth-tabs { display: flex; border-bottom: 2px solid #e9edf2; margin-bottom: 1.5rem; }
+    .auth-tabs button { flex: 1; padding: 0.6rem 0; border: none; background: transparent; font-size: 1rem; font-weight: 600; color: #64748b; cursor: pointer; border-bottom: 2px solid transparent; transition: 0.15s; }
     .auth-tabs button.active { color: #0b3b4c; border-bottom-color: #d4a373; }
     .auth-tabs button:hover { color: #0b3b4c; }
-    .auth-form {
-      display: none;
-      flex-direction: column;
-      gap: 1rem;
-      max-width: 400px;
-      margin: 0 auto;
-    }
+    .auth-form { display: none; flex-direction: column; gap: 1rem; max-width: 400px; margin: 0 auto; }
     .auth-form.active { display: flex; }
     .auth-form label { font-weight: 500; font-size: 0.9rem; color: #334155; }
-    .auth-form .input-group {
-      display: flex;
-      align-items: center;
-      background: #f1f5f9;
-      border-radius: 6px;
-      padding: 0 0.8rem;
-      border: 1px solid #e2e8f0;
-      transition: border-color 0.15s;
-    }
+    .auth-form .input-group { display: flex; align-items: center; background: #f1f5f9; border-radius: 6px; padding: 0 0.8rem; border: 1px solid #e2e8f0; transition: border-color 0.15s; }
     .auth-form .input-group:focus-within { border-color: #0b3b4c; background: #ffffff; }
     .auth-form .input-group i { color: #94a3b8; font-size: 0.95rem; margin-right: 8px; }
-    .auth-form .input-group input {
-      width: 100%;
-      padding: 0.6rem 0;
-      border: none;
-      background: transparent;
-      font-size: 0.95rem;
-      outline: none;
-      color: #0f172a;
-    }
-    .auth-form .btn-primary {
-      background: #0b3b4c;
-      color: white;
-      border: none;
-      padding: 0.7rem 0;
-      border-radius: 6px;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
+    .auth-form .input-group input { width: 100%; padding: 0.6rem 0; border: none; background: transparent; font-size: 0.95rem; outline: none; color: #0f172a; }
+    .auth-form .btn-primary { background: #0b3b4c; color: white; border: none; padding: 0.7rem 0; border-radius: 6px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: background 0.15s; }
     .auth-form .btn-primary:hover { background: #0a2f3d; }
     .auth-form .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
     .auth-form .form-error { color: #b91c1c; font-size: 0.85rem; background: #fef2f2; padding: 0.4rem 0.8rem; border-radius: 4px; display: none; }
     .auth-form .form-success { color: #0b6b4c; font-size: 0.85rem; background: #f0fdf4; padding: 0.4rem 0.8rem; border-radius: 4px; display: none; }
 
-    .user-profile {
-      display: none;
-      text-align: center;
-      padding: 1rem 0;
-    }
+    .user-profile { display: none; text-align: center; padding: 1rem 0; }
     .user-profile.active { display: block; }
-    .user-profile .avatar-wrap {
-      position: relative;
-      width: 100px;
-      height: 100px;
-      margin: 0 auto 0.8rem;
-      cursor: pointer;
-    }
-    .user-profile .avatar-wrap img {
-      width: 100%;
-      height: 100%;
-      border-radius: 50%;
-      object-fit: cover;
-      border: 3px solid #d4a373;
-      background: #f0f4f8;
-    }
-    .user-profile .avatar-wrap .avatar-placeholder {
-      width: 100%;
-      height: 100%;
-      border-radius: 50%;
-      background: #dbeafe;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 3rem;
-      color: #0b3b4c;
-      border: 3px solid #d4a373;
-    }
-    .user-profile .avatar-wrap .upload-hint {
-      position: absolute;
-      bottom: 0;
-      right: 0;
-      background: #0b3b4c;
-      color: #fff;
-      border-radius: 50%;
-      width: 28px;
-      height: 28px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.8rem;
-      border: 2px solid #fff;
-    }
+    .user-profile .avatar-wrap { position: relative; width: 100px; height: 100px; margin: 0 auto 0.8rem; cursor: pointer; }
+    .user-profile .avatar-wrap img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: 3px solid #d4a373; background: #f0f4f8; }
+    .user-profile .avatar-wrap .avatar-placeholder { width: 100%; height: 100%; border-radius: 50%; background: #dbeafe; display: flex; align-items: center; justify-content: center; font-size: 3rem; color: #0b3b4c; border: 3px solid #d4a373; }
+    .user-profile .avatar-wrap .upload-hint { position: absolute; bottom: 0; right: 0; background: #0b3b4c; color: #fff; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; border: 2px solid #fff; }
     .user-profile .user-email { font-size: 1.1rem; font-weight: 600; color: #0b3b4c; }
     .user-profile .user-qq { color: #64748b; font-size: 0.9rem; }
-    .user-profile .user-role {
-      display: inline-block;
-      background: #dbeafe;
-      color: #0b3b4c;
-      padding: 0.1rem 0.8rem;
-      border-radius: 20px;
-      font-size: 0.8rem;
-      font-weight: 600;
-      margin-top: 0.2rem;
-    }
-    .user-profile .btn-group {
-      margin-top: 1rem;
-      display: flex;
-      gap: 0.8rem;
-      justify-content: center;
-      flex-wrap: wrap;
-    }
-    .user-profile .btn-logout {
-      background: #e2e8f0;
-      color: #1e293b;
-      border: none;
-      padding: 0.4rem 1.8rem;
-      border-radius: 20px;
-      font-weight: 500;
-      cursor: pointer;
-      font-size: 0.9rem;
-      transition: background 0.15s;
-    }
+    .user-profile .user-role { display: inline-block; background: #dbeafe; color: #0b3b4c; padding: 0.1rem 0.8rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600; margin-top: 0.2rem; }
+    .user-profile .btn-group { margin-top: 1rem; display: flex; gap: 0.8rem; justify-content: center; flex-wrap: wrap; }
+    .user-profile .btn-logout { background: #e2e8f0; color: #1e293b; border: none; padding: 0.4rem 1.8rem; border-radius: 20px; font-weight: 500; cursor: pointer; font-size: 0.9rem; transition: background 0.15s; }
     .user-profile .btn-logout:hover { background: #cbd5e1; }
-    .user-profile .btn-admin {
-      background: #0b3b4c;
-      color: #fff;
-      border: none;
-      padding: 0.4rem 1.8rem;
-      border-radius: 20px;
-      font-weight: 500;
-      cursor: pointer;
-      font-size: 0.9rem;
-      transition: background 0.15s;
-      text-decoration: none;
-      display: inline-block;
-    }
+    .user-profile .btn-admin { background: #0b3b4c; color: #fff; border: none; padding: 0.4rem 1.8rem; border-radius: 20px; font-weight: 500; cursor: pointer; font-size: 0.9rem; transition: background 0.15s; text-decoration: none; display: inline-block; }
     .user-profile .btn-admin:hover { background: #0a2f3d; }
     #avatarInput { display: none; }
 
-    .toast {
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      padding: 0.8rem 1.6rem;
-      border-radius: 8px;
-      background: #0b3b4c;
-      color: #fff;
-      font-weight: 500;
-      font-size: 0.9rem;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-      opacity: 0;
-      transform: translateY(16px);
-      transition: 0.25s ease;
-      z-index: 9999;
-      max-width: 360px;
-    }
+    .toast { position: fixed; bottom: 24px; right: 24px; padding: 0.8rem 1.6rem; border-radius: 8px; background: #0b3b4c; color: #fff; font-weight: 500; font-size: 0.9rem; box-shadow: 0 4px 16px rgba(0,0,0,0.12); opacity: 0; transform: translateY(16px); transition: 0.25s ease; z-index: 9999; max-width: 360px; }
     .toast.show { opacity: 1; transform: translateY(0); }
     .toast.success { background: #0b6b4c; }
     .toast.error { background: #b91c1c; }
 
-    .footer {
-      background: #0b3b4c;
-      color: #94a3b8;
-      text-align: center;
-      padding: 1.2rem 1rem;
-      font-size: 0.85rem;
-      border-top: 2px solid #d4a373;
-      margin-top: 1.5rem;
-    }
+    .footer { background: #0b3b4c; color: #94a3b8; text-align: center; padding: 1.2rem 1rem; font-size: 0.85rem; border-top: 2px solid #d4a373; margin-top: 1.5rem; }
     .footer span { color: #d4a373; }
 
     @media (max-width: 820px) {
@@ -740,18 +690,7 @@ define('CURRENT_PAGE', $page);
     }
     @media (max-width: 640px) {
       .hamburger { display: flex; }
-      .nav-links {
-        position: absolute;
-        top: 64px;
-        left: 0;
-        right: 0;
-        background: #0b3b4c;
-        flex-direction: column;
-        padding: 0.8rem 0;
-        gap: 0;
-        display: none;
-        border-top: 1px solid #1e4c5e;
-      }
+      .nav-links { position: absolute; top: 64px; left: 0; right: 0; background: #0b3b4c; flex-direction: column; padding: 0.8rem 0; gap: 0; display: none; border-top: 1px solid #1e4c5e; }
       .nav-links.open { display: flex; }
       .nav-links li { width: 100%; text-align: center; }
       .nav-links li a { padding: 0.6rem 0; border-bottom: none; }
@@ -1541,7 +1480,6 @@ define('CURRENT_PAGE', $page);
       };
 
       // ========== 页面加载初始化 ==========
-      // 先获取用户状态，完成后自动渲染对应页面（在 updateUIForUser 中已处理）
       initUser();
 
       // 菜单关闭
