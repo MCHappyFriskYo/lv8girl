@@ -1,6 +1,8 @@
 <?php
 /**
- * LunaticChO 前台 - 完整版（PDF 博物志，默认 200%，文件同目录）
+ * LunaticChO 主入口
+ * 根据 ?page= 参数加载不同页面
+ * 所有 API 请求仍由本文件处理（action 参数）
  */
 
 error_reporting(E_ALL);
@@ -10,7 +12,7 @@ ob_start();
 
 // ========== 数据库配置 ==========
 function gsk_config() {
-    $host = 'lv8girl-db';
+    $host = 'db';
     $dbname = 'lv8girl';
     $db_user = 'lv8girl';
     $db_pass = 'yourpasswd'; // 请修改
@@ -384,10 +386,20 @@ if (isset($_REQUEST['action'])) {
 }
 
 // ================================================================
-// 没有 action 参数，输出 HTML
+// 没有 action 参数，输出 HTML 页面
 // ================================================================
 ob_end_clean();
 header('Content-Type: text/html; charset=utf-8');
+
+// 获取当前页面参数，默认为 home
+$page = $_GET['page'] ?? 'home';
+$allowed_pages = ['home', 'exam', 'museum', 'weekly', 'account'];
+if (!in_array($page, $allowed_pages)) {
+    $page = 'home';
+}
+
+// 定义常量供页面文件使用
+define('CURRENT_PAGE', $page);
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -396,9 +408,10 @@ header('Content-Type: text/html; charset=utf-8');
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LunaticChO · 联考平台</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <!-- PDF.js 只在博物志页面加载，但为了简化，全局加载 -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <style>
-    /* ===== 样式（与之前完整版一致） ===== */
+    /* ===== 全局样式（与之前一致） ===== */
     * { margin:0; padding:0; box-sizing:border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -469,8 +482,6 @@ header('Content-Type: text/html; charset=utf-8');
       flex: 1;
       width: 100%;
     }
-    .page { display: none; }
-    .page.active { display: block; }
     .card {
       background: #ffffff;
       border-radius: 12px;
@@ -1054,6 +1065,17 @@ header('Content-Type: text/html; charset=utf-8');
     .toast.success { background: #0b6b4c; }
     .toast.error { background: #b91c1c; }
 
+    .footer {
+      background: #0b3b4c;
+      color: #94a3b8;
+      text-align: center;
+      padding: 1.2rem 1rem;
+      font-size: 0.85rem;
+      border-top: 2px solid #d4a373;
+      margin-top: 1.5rem;
+    }
+    .footer span { color: #d4a373; }
+
     @media (max-width: 820px) {
       .navbar { padding: 0 1.5rem; }
       .features-grid { grid-template-columns: 1fr 1fr; }
@@ -1098,214 +1120,33 @@ header('Content-Type: text/html; charset=utf-8');
     <div class="brand"><i class="fas fa-flask"></i> LunaticChO</div>
     <button class="hamburger" id="hamburger"><span></span><span></span><span></span></button>
     <ul class="nav-links" id="navLinks">
-      <li><a href="#" class="active" data-page="home">主页</a></li>
-      <li><a href="#" data-page="exam">联考</a></li>
-      <li><a href="#" data-page="museum">博物志</a></li>
-      <li><a href="#" data-page="weekly">周常</a></li>
-      <li><a href="#" data-page="account">账号</a></li>
+      <li><a href="?page=home" class="<?= $page === 'home' ? 'active' : '' ?>">主页</a></li>
+      <li><a href="?page=exam" class="<?= $page === 'exam' ? 'active' : '' ?>">联考</a></li>
+      <li><a href="?page=museum" class="<?= $page === 'museum' ? 'active' : '' ?>">博物志</a></li>
+      <li><a href="?page=weekly" class="<?= $page === 'weekly' ? 'active' : '' ?>">周常</a></li>
+      <li><a href="?page=account" class="<?= $page === 'account' ? 'active' : '' ?>">账号</a></li>
     </ul>
   </nav>
 
   <div class="container">
-    <!-- ===== 主页 ===== -->
-    <section class="page active" id="page-home">
-      <div class="hero">
-        <div class="hero-logo"><i class="fas fa-flask"></i></div>
-        <h1><i class="fas fa-flask"></i>LunaticChO 联考平台</h1>
-        <p>化学学科联考 · 答题卡收集 · 数据驱动教学</p>
-      </div>
-      <div class="card" style="border-top: 4px solid #d4a373;">
-        <div class="card-title"><i class="fas fa-flag"></i>平台简介</div>
-        <p style="color:#334155;">LunaticChO 为化学联考提供从试卷发布、答题卡扫描上传到成绩统计的全流程支持。考生通过邮箱注册，可随时上传答题卡，教师端统一收集，高效便捷。</p>
-      </div>
-      <div class="card" id="homeProgressCard">
-        <div class="card-title">
-          <i class="fas fa-calendar-check"></i>我的周常进度
-          <span style="margin-left:auto; font-size:0.9rem; cursor:pointer; color:#2563eb;" onclick="renderHomeProgress();renderWeekly();showToast('已刷新', 'success');">
-            <i class="fas fa-sync-alt"></i> 刷新
-          </span>
-        </div>
-        <div id="homeProgressContent"><p style="color:#94a3b8;text-align:center;padding:0.5rem 0;">加载中...</p></div>
-      </div>
-      <div class="card">
-        <div class="card-title"><i class="fas fa-star"></i>核心功能</div>
-        <div class="features-grid">
-          <div class="feature-item"><i class="fas fa-envelope"></i><h4>邮箱注册</h4><p>快速注册，即时使用</p></div>
-          <div class="feature-item"><i class="fas fa-upload"></i><h4>答题卡上传</h4><p>支持拖拽/点击，图片格式</p></div>
-          <div class="feature-item"><i class="fas fa-chart-bar"></i><h4>数据管理</h4><p>自动归档，随时查阅</p></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- 联考（空白） -->
-    <section class="page" id="page-exam">
-      <div class="card">
-        <div class="card-title"><i class="fas fa-pencil-alt"></i>联考管理</div>
-        <div class="exam-empty"><i class="fas fa-hourglass-half"></i><h3>联考功能开发中</h3><p>敬请期待后续更新。</p></div>
-      </div>
-    </section>
-
-    <!-- ===== 博物志 PDF 阅读器 ===== -->
-    <section class="page" id="page-museum">
-      <div class="card">
-        <div class="card-title"><i class="fas fa-book-open"></i>燕石博物志</div>
-        <div class="pdf-container">
-          <div id="pdfViewer" class="pdf-viewer">
-            <div class="pdf-loading">
-              <i class="fas fa-spinner fa-spin"></i>
-              <p>正在加载 PDF...</p>
-            </div>
-          </div>
-          <div class="pdf-controls">
-            <button id="pdfPrev"><i class="fas fa-chevron-left"></i> 上一页</button>
-            <span class="page-info" id="pdfPageInfo">1 / 1</span>
-            <button id="pdfNext">下一页 <i class="fas fa-chevron-right"></i></button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== 周常 ===== -->
-    <section class="page" id="page-weekly">
-      <div class="card">
-        <div class="card-title"><i class="fas fa-calendar-week"></i>周常 · 化学挑战</div>
-        <div id="weeklyContainer">
-          <p style="color:#94a3b8; text-align:center; padding:1rem 0;">加载中...</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- 账号 -->
-    <section class="page" id="page-account">
-      <div class="card" style="max-width:560px; margin:0 auto;">
-        <div class="card-title" style="justify-content:center;"><i class="fas fa-user-circle"></i>账号中心</div>
-        <div class="user-profile" id="userProfile">
-          <div class="avatar-wrap" id="avatarWrap">
-            <div class="avatar-placeholder" id="avatarPlaceholder"><i class="fas fa-user"></i></div>
-            <img id="avatarImg" style="display:none;" alt="头像">
-            <div class="upload-hint"><i class="fas fa-camera"></i></div>
-          </div>
-          <input type="file" id="avatarInput" accept="image/*">
-          <div class="user-email" id="profileEmail">user@example.com</div>
-          <div class="user-qq" id="profileQQ">QQ: --</div>
-          <div class="user-role" id="profileRole">MARKER</div>
-          <div class="btn-group">
-            <button class="btn-logout" id="logoutBtn"><i class="fas fa-sign-out-alt"></i> 退出</button>
-            <a href="admin.php" class="btn-admin" id="adminBtn" style="display:none;"><i class="fas fa-tools"></i> 进入后台</a>
-          </div>
-        </div>
-        <div class="auth-tabs" id="authTabs">
-          <button class="active" data-tab="login">登录</button>
-          <button data-tab="register">注册</button>
-        </div>
-        <!-- 登录 -->
-        <form class="auth-form active" id="loginForm">
-          <div class="form-error" id="loginError"></div>
-          <div class="form-success" id="loginSuccess"></div>
-          <label>用户名 / 邮箱</label>
-          <div class="input-group"><i class="fas fa-user"></i><input type="text" id="loginUsername" placeholder="请输入用户名或邮箱" required /></div>
-          <label>密码</label>
-          <div class="input-group"><i class="fas fa-lock"></i><input type="password" id="loginPassword" placeholder="请输入密码" required /></div>
-          <button type="submit" class="btn-primary">登录</button>
-        </form>
-        <!-- 注册 -->
-        <form class="auth-form" id="registerForm">
-          <div class="form-error" id="registerError"></div>
-          <div class="form-success" id="registerSuccess"></div>
-          <label>用户名（唯一）</label>
-          <div class="input-group"><i class="fas fa-user"></i><input type="text" id="regUsername" placeholder="请设置用户名" required /></div>
-          <label>邮箱</label>
-          <div class="input-group"><i class="fas fa-envelope"></i><input type="email" id="regEmail" placeholder="请输入邮箱" required /></div>
-          <label>密码（至少6位）</label>
-          <div class="input-group"><i class="fas fa-lock"></i><input type="password" id="regPassword" placeholder="设置密码" required minlength="6" /></div>
-          <label>QQ号（选填）</label>
-          <div class="input-group"><i class="fab fa-qq"></i><input type="text" id="regQQ" placeholder="请输入QQ号" /></div>
-          <button type="submit" class="btn-primary">注册</button>
-        </form>
-      </div>
-    </section>
+    <?php
+    // 根据当前页面加载对应的内容文件
+    $page_file = __DIR__ . '/pages/' . $page . '.php';
+    if (file_exists($page_file)) {
+        include $page_file;
+    } else {
+        echo '<p style="color:#b91c1c;">页面不存在</p>';
+    }
+    ?>
   </div>
 
-  <footer class="footer" style="background:#0b3b4c;color:#94a3b8;text-align:center;padding:1.2rem 1rem;font-size:0.85rem;border-top:2px solid #d4a373;margin-top:1.5rem;"><p>© 2026 <span style="color:#d4a373;">LunaticChO</span> · 化学联考平台</p></footer>
+  <footer class="footer"><p>© 2026 <span>LunaticChO</span> · 化学联考平台</p></footer>
   <div class="toast" id="toast"></div>
 
+  <!-- ===== 共享 JavaScript ===== -->
   <script>
     (function() {
       'use strict';
-
-      // ========== PDF 阅读器逻辑 ==========
-      const PDF_URL = 'yan_shi_bo_wu_zhi.pdf'; // 与 index.php 同目录
-      let pdfDoc = null,
-          pageNum = 1,
-          pageRendering = false,
-          pageNumPending = null,
-          scale = 2.0; // 默认 200%
-      const canvas = document.createElement('canvas');
-      const viewer = document.getElementById('pdfViewer');
-      const ctx = canvas.getContext('2d');
-
-      viewer.innerHTML = '';
-      viewer.appendChild(canvas);
-
-      function renderPage(num) {
-        pageRendering = true;
-        pdfDoc.getPage(num).then(function(page) {
-          const viewport = page.getViewport({ scale: scale });
-          canvas.height = viewport.height;
-          canvas.width = viewport.width;
-          canvas.style.width = '100%';
-          canvas.style.height = 'auto';
-          const renderContext = {
-            canvasContext: ctx,
-            viewport: viewport
-          };
-          const renderTask = page.render(renderContext);
-          renderTask.promise.then(function() {
-            pageRendering = false;
-            if (pageNumPending !== null) {
-              renderPage(pageNumPending);
-              pageNumPending = null;
-            }
-          });
-        });
-        document.getElementById('pdfPageInfo').textContent = num + ' / ' + pdfDoc.numPages;
-        document.getElementById('pdfPrev').disabled = (num <= 1);
-        document.getElementById('pdfNext').disabled = (num >= pdfDoc.numPages);
-      }
-
-      function queueRenderPage(num) {
-        if (pageRendering) {
-          pageNumPending = num;
-        } else {
-          renderPage(num);
-        }
-      }
-
-      function loadPDF() {
-        pdfjsLib.getDocument(PDF_URL).promise.then(function(pdf) {
-          pdfDoc = pdf;
-          pageNum = 1;
-          renderPage(pageNum);
-        }).catch(function(err) {
-          viewer.innerHTML = '<div style="text-align:center;padding:2rem;color:#b91c1c;"><i class="fas fa-exclamation-triangle" style="font-size:2.5rem;display:block;margin-bottom:0.5rem;"></i><p>无法加载 PDF 文件，请确保文件存在且路径正确。</p><p style="font-size:0.85rem;color:#94a3b8;">' + err.message + '</p></div>';
-          console.error('PDF加载错误:', err);
-        });
-      }
-
-      document.getElementById('pdfPrev').addEventListener('click', function() {
-        if (pdfDoc && pageNum > 1) {
-          pageNum--;
-          queueRenderPage(pageNum);
-        }
-      });
-      document.getElementById('pdfNext').addEventListener('click', function() {
-        if (pdfDoc && pageNum < pdfDoc.numPages) {
-          pageNum++;
-          queueRenderPage(pageNum);
-        }
-      });
-
-      loadPDF();
 
       // ========== API 调用层 ==========
       const API = {
@@ -1368,29 +1209,13 @@ header('Content-Type: text/html; charset=utf-8');
         }
       };
 
-      // ========== UI 控制 ==========
+      // ========== 公用 UI 控制 ==========
       const $ = (s) => document.querySelector(s);
       const $$ = (s) => document.querySelectorAll(s);
 
-      const pageLinks = $$('.nav-links a');
-      const pages = $$('.page');
       const hamburger = $('#hamburger');
       const navList = $('#navLinks');
 
-      function setActivePage(pageId) {
-        pages.forEach(p => p.classList.remove('active'));
-        const target = document.getElementById('page-' + pageId);
-        if (target) target.classList.add('active');
-        pageLinks.forEach(a => a.classList.toggle('active', a.dataset.page === pageId));
-        navList.classList.remove('open');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      }
-      pageLinks.forEach(a => {
-        a.addEventListener('click', (e) => {
-          e.preventDefault();
-          if (a.dataset.page) setActivePage(a.dataset.page);
-        });
-      });
       hamburger.addEventListener('click', () => navList.classList.toggle('open'));
 
       function showToast(msg, type = 'info') {
@@ -1401,6 +1226,7 @@ header('Content-Type: text/html; charset=utf-8');
         t._timer = setTimeout(() => t.classList.remove('show'), 3000);
       }
 
+      // ========== 全局状态 ==========
       let currentUser = null;
       let currentExamId = null;
       let examQuestions = [];
@@ -1490,8 +1316,10 @@ header('Content-Type: text/html; charset=utf-8');
           $('#registerSuccess').style.display = 'none';
           adminBtn.style.display = 'none';
         }
-        renderHomeProgress();
-        renderWeekly();
+        // 页面加载完后，如果是主页或周常页，重新渲染
+        const page = '<?= $page ?>';
+        if (page === 'home') renderHomeProgress();
+        if (page === 'weekly') renderWeekly();
       }
 
       async function initUser() {
@@ -1508,9 +1336,10 @@ header('Content-Type: text/html; charset=utf-8');
       }
 
       // 认证切换
-      $$('.auth-tabs button').forEach(tab => {
+      const authTabs = $$('.auth-tabs button');
+      authTabs.forEach(tab => {
         tab.addEventListener('click', function() {
-          $$('.auth-tabs button').forEach(t => t.classList.remove('active'));
+          authTabs.forEach(t => t.classList.remove('active'));
           this.classList.add('active');
           const target = this.dataset.tab;
           $$('.auth-form').forEach(f => f.classList.remove('active'));
@@ -1527,112 +1356,127 @@ header('Content-Type: text/html; charset=utf-8');
       });
 
       // 登录
-      $('#loginForm').addEventListener('submit', async function(e) {
-        e.preventDefault();
-        const username = $('#loginUsername').value.trim();
-        const password = $('#loginPassword').value.trim();
-        const err = $('#loginError');
-        const suc = $('#loginSuccess');
-        err.style.display = 'none';
-        suc.style.display = 'none';
-        if (!username || !password) { err.textContent = '请填写完整'; err.style.display = 'block'; return; }
-        try {
-          const res = await API.login(username, password);
-          if (res.code === 0) {
-            suc.textContent = '✅ 登录成功';
-            suc.style.display = 'block';
-            showToast('欢迎回来', 'success');
-            $('#loginUsername').value = '';
-            $('#loginPassword').value = '';
-            await initUser();
-          } else {
-            err.textContent = res.message || '登录失败';
+      const loginForm = $('#loginForm');
+      if (loginForm) {
+        loginForm.addEventListener('submit', async function(e) {
+          e.preventDefault();
+          const username = $('#loginUsername').value.trim();
+          const password = $('#loginPassword').value.trim();
+          const err = $('#loginError');
+          const suc = $('#loginSuccess');
+          err.style.display = 'none';
+          suc.style.display = 'none';
+          if (!username || !password) { err.textContent = '请填写完整'; err.style.display = 'block'; return; }
+          try {
+            const res = await API.login(username, password);
+            if (res.code === 0) {
+              suc.textContent = '✅ 登录成功';
+              suc.style.display = 'block';
+              showToast('欢迎回来', 'success');
+              $('#loginUsername').value = '';
+              $('#loginPassword').value = '';
+              await initUser();
+            } else {
+              err.textContent = res.message || '登录失败';
+              err.style.display = 'block';
+            }
+          } catch (ex) {
+            err.textContent = ex.message || '网络错误';
             err.style.display = 'block';
           }
-        } catch (ex) {
-          err.textContent = ex.message || '网络错误';
-          err.style.display = 'block';
-        }
-      });
+        });
+      }
 
       // 注册
-      $('#registerForm').addEventListener('submit', async function(e) {
-        e.preventDefault();
-        const username = $('#regUsername').value.trim();
-        const email = $('#regEmail').value.trim();
-        const password = $('#regPassword').value.trim();
-        const qq = $('#regQQ').value.trim();
-        const err = $('#registerError');
-        const suc = $('#registerSuccess');
-        err.style.display = 'none';
-        suc.style.display = 'none';
-        if (!username || !email || !password) {
-          err.textContent = '用户名、邮箱和密码为必填项';
-          err.style.display = 'block';
-          return;
-        }
-        if (password.length < 6) {
-          err.textContent = '密码至少6位';
-          err.style.display = 'block';
-          return;
-        }
-        try {
-          const res = await API.register(username, email, password, qq);
-          if (res.code === 0) {
-            suc.textContent = '🎉 ' + res.message;
-            suc.style.display = 'block';
-            showToast('注册成功，请登录', 'success');
-            $('#regUsername').value = '';
-            $('#regEmail').value = '';
-            $('#regPassword').value = '';
-            $('#regQQ').value = '';
-            document.querySelector('[data-tab="login"]').click();
-          } else {
-            err.textContent = res.message || '注册失败';
+      const registerForm = $('#registerForm');
+      if (registerForm) {
+        registerForm.addEventListener('submit', async function(e) {
+          e.preventDefault();
+          const username = $('#regUsername').value.trim();
+          const email = $('#regEmail').value.trim();
+          const password = $('#regPassword').value.trim();
+          const qq = $('#regQQ').value.trim();
+          const err = $('#registerError');
+          const suc = $('#registerSuccess');
+          err.style.display = 'none';
+          suc.style.display = 'none';
+          if (!username || !email || !password) {
+            err.textContent = '用户名、邮箱和密码为必填项';
+            err.style.display = 'block';
+            return;
+          }
+          if (password.length < 6) {
+            err.textContent = '密码至少6位';
+            err.style.display = 'block';
+            return;
+          }
+          try {
+            const res = await API.register(username, email, password, qq);
+            if (res.code === 0) {
+              suc.textContent = '🎉 ' + res.message;
+              suc.style.display = 'block';
+              showToast('注册成功，请登录', 'success');
+              $('#regUsername').value = '';
+              $('#regEmail').value = '';
+              $('#regPassword').value = '';
+              $('#regQQ').value = '';
+              document.querySelector('[data-tab="login"]').click();
+            } else {
+              err.textContent = res.message || '注册失败';
+              err.style.display = 'block';
+            }
+          } catch (ex) {
+            err.textContent = ex.message || '网络错误';
             err.style.display = 'block';
           }
-        } catch (ex) {
-          err.textContent = ex.message || '网络错误';
-          err.style.display = 'block';
-        }
-      });
+        });
+      }
 
       // 退出
-      $('#logoutBtn').addEventListener('click', async function() {
-        try {
-          await API.logout();
-          await initUser();
-          showToast('已退出', 'info');
-          setActivePage('home');
-        } catch (e) {
-          showToast('退出失败', 'error');
-        }
-      });
+      const logoutBtn = $('#logoutBtn');
+      if (logoutBtn) {
+        logoutBtn.addEventListener('click', async function() {
+          try {
+            await API.logout();
+            await initUser();
+            showToast('已退出', 'info');
+            window.location.href = '?page=home';
+          } catch (e) {
+            showToast('退出失败', 'error');
+          }
+        });
+      }
 
       // 头像上传点击
-      $('#avatarWrap').addEventListener('click', function() {
-        if (!currentUser) {
-          showToast('请先登录', 'error');
-          return;
-        }
-        $('#avatarInput').click();
-      });
-
-      $('#avatarInput').addEventListener('change', function() {
-        if (this.files.length > 0) {
-          handleAvatarUpload(this.files[0]);
-        }
-        this.value = '';
-      });
+      const avatarWrap = $('#avatarWrap');
+      const avatarInput = $('#avatarInput');
+      if (avatarWrap) {
+        avatarWrap.addEventListener('click', function() {
+          if (!currentUser) {
+            showToast('请先登录', 'error');
+            return;
+          }
+          avatarInput.click();
+        });
+      }
+      if (avatarInput) {
+        avatarInput.addEventListener('change', function() {
+          if (this.files.length > 0) {
+            handleAvatarUpload(this.files[0]);
+          }
+          this.value = '';
+        });
+      }
 
       // ========== 主页进度 ==========
       async function renderHomeProgress() {
         const container = $('#homeProgressContent');
+        if (!container) return;
         if (!currentUser) {
           container.innerHTML = `
             <div class="no-exams-msg">
               <i class="fas fa-sign-in-alt"></i>
-              <p>请 <a href="#" onclick="setActivePage('account')" style="color:#2563eb;text-decoration:underline;">登录</a> 查看您的周常进度</p>
+              <p>请 <a href="?page=account" style="color:#2563eb;text-decoration:underline;">登录</a> 查看您的周常进度</p>
             </div>
           `;
           return;
@@ -1678,6 +1522,7 @@ header('Content-Type: text/html; charset=utf-8');
       // ========== 周常页面 ==========
       async function renderWeekly() {
         const container = $('#weeklyContainer');
+        if (!container) return;
         try {
           const examsRes = await API.getExams();
           if (examsRes.code !== 0 || !examsRes.data || examsRes.data.length === 0) {
@@ -1748,12 +1593,12 @@ header('Content-Type: text/html; charset=utf-8');
         }
       }
 
-      // ========== 核心交互 ==========
+      // ========== 核心交互（考试） ==========
       window.LunaticChO = {
         handleExamClick: async function(examId) {
           if (!currentUser) {
             showToast('请先登录', 'error');
-            setActivePage('account');
+            window.location.href = '?page=account';
             return;
           }
           try {
@@ -1772,7 +1617,7 @@ header('Content-Type: text/html; charset=utf-8');
         startExam: async function(examId) {
           if (!currentUser) {
             showToast('请先登录后再答题', 'error');
-            setActivePage('account');
+            window.location.href = '?page=account';
             return;
           }
           currentExamId = examId;
@@ -1792,6 +1637,7 @@ header('Content-Type: text/html; charset=utf-8');
 
         renderExam: function(exam, questions) {
           const container = $('#weeklyContainer');
+          if (!container) return;
           if (!questions || questions.length === 0) {
             container.innerHTML = '<p style="color:#94a3b8; text-align:center; padding:1rem 0;">该考试暂无题目。</p>';
             return;
@@ -1880,7 +1726,7 @@ header('Content-Type: text/html; charset=utf-8');
                   </div>
                 `;
                 document.querySelector('.btn-submit-exam').disabled = true;
-                renderHomeProgress();
+                if (document.location.search.includes('page=home')) renderHomeProgress();
               } else {
                 showToast(res.message || '提交失败', 'error');
               }
@@ -1892,6 +1738,7 @@ header('Content-Type: text/html; charset=utf-8');
 
         viewAnswer: async function(examId) {
           const container = $('#weeklyContainer');
+          if (!container) return;
           try {
             const res = await API.getUserAnswers(examId);
             if (res.code === 0) {
@@ -1975,6 +1822,7 @@ header('Content-Type: text/html; charset=utf-8');
 
         viewRanking: async function(examId) {
           const container = $('#weeklyContainer');
+          if (!container) return;
           try {
             const res = await API.getRanking(examId);
             if (res.code === 0) {
@@ -2025,20 +1873,111 @@ header('Content-Type: text/html; charset=utf-8');
         },
 
         backToExams: function() {
-          renderWeekly();
-          renderHomeProgress();
+          window.location.href = '?page=weekly';
         }
       };
 
-      // ========== 启动 ==========
-      initUser();
-
-      document.addEventListener('click', (e) => {
-        if (!e.target.closest('.navbar')) navList.classList.remove('open');
+      // ========== 页面加载完成后执行初始化 ==========
+      document.addEventListener('DOMContentLoaded', function() {
+        const page = '<?= $page ?>';
+        if (page === 'home') {
+          renderHomeProgress();
+        } else if (page === 'weekly') {
+          renderWeekly();
+        } else if (page === 'account') {
+          // 账号页面初始化由用户状态自动完成
+        }
+        // 博物志的 PDF 加载在其自己的脚本中
+        initUser();
+        // 点击外部关闭菜单
+        document.addEventListener('click', (e) => {
+          if (!e.target.closest('.navbar')) navList.classList.remove('open');
+        });
       });
 
-      console.log('LunaticChO 前台启动完成（PDF 默认 200%，文件同目录）');
     })();
   </script>
+
+  <!-- 页面特有的脚本 -->
+  <?php if ($page === 'museum'): ?>
+    <script>
+      (function() {
+        'use strict';
+        // PDF 阅读器逻辑
+        const PDF_URL = 'yan_shi_bo_wu_zhi.pdf';
+        let pdfDoc = null,
+            pageNum = 1,
+            pageRendering = false,
+            pageNumPending = null,
+            scale = 2.0;
+        const canvas = document.createElement('canvas');
+        const viewer = document.getElementById('pdfViewer');
+        if (!viewer) return;
+        const ctx = canvas.getContext('2d');
+        viewer.innerHTML = '';
+        viewer.appendChild(canvas);
+
+        function renderPage(num) {
+          pageRendering = true;
+          pdfDoc.getPage(num).then(function(page) {
+            const viewport = page.getViewport({ scale: scale });
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            canvas.style.width = '100%';
+            canvas.style.height = 'auto';
+            const renderContext = {
+              canvasContext: ctx,
+              viewport: viewport
+            };
+            const renderTask = page.render(renderContext);
+            renderTask.promise.then(function() {
+              pageRendering = false;
+              if (pageNumPending !== null) {
+                renderPage(pageNumPending);
+                pageNumPending = null;
+              }
+            });
+          });
+          document.getElementById('pdfPageInfo').textContent = num + ' / ' + pdfDoc.numPages;
+          document.getElementById('pdfPrev').disabled = (num <= 1);
+          document.getElementById('pdfNext').disabled = (num >= pdfDoc.numPages);
+        }
+
+        function queueRenderPage(num) {
+          if (pageRendering) {
+            pageNumPending = num;
+          } else {
+            renderPage(num);
+          }
+        }
+
+        function loadPDF() {
+          pdfjsLib.getDocument(PDF_URL).promise.then(function(pdf) {
+            pdfDoc = pdf;
+            pageNum = 1;
+            renderPage(pageNum);
+          }).catch(function(err) {
+            viewer.innerHTML = '<div style="text-align:center;padding:2rem;color:#b91c1c;"><i class="fas fa-exclamation-triangle" style="font-size:2.5rem;display:block;margin-bottom:0.5rem;"></i><p>无法加载 PDF 文件，请确保文件存在且路径正确。</p><p style="font-size:0.85rem;color:#94a3b8;">' + err.message + '</p></div>';
+            console.error('PDF加载错误:', err);
+          });
+        }
+
+        document.getElementById('pdfPrev').addEventListener('click', function() {
+          if (pdfDoc && pageNum > 1) {
+            pageNum--;
+            queueRenderPage(pageNum);
+          }
+        });
+        document.getElementById('pdfNext').addEventListener('click', function() {
+          if (pdfDoc && pageNum < pdfDoc.numPages) {
+            pageNum++;
+            queueRenderPage(pageNum);
+          }
+        });
+
+        loadPDF();
+      })();
+    </script>
+  <?php endif; ?>
 </body>
 </html>
