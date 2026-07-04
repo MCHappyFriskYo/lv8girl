@@ -1,8 +1,6 @@
 <?php
 /**
- * LunaticChO 主入口 - 完整版（含所有 API）
- * 根据 ?page= 参数加载不同页面
- * 根据 ?action= 参数处理 API 请求
+ * LunaticChO 主入口 - 修复周常加载问题
  */
 
 error_reporting(E_ALL);
@@ -12,10 +10,10 @@ ob_start();
 
 // ========== 数据库配置 ==========
 function gsk_config() {
-    $host = 'lv8girl-db';
+    $host = 'db';
     $dbname = 'lv8girl';
     $db_user = 'lv8girl';
-    $db_pass = 'yourpasswd'; // 请修改为实际密码
+    $db_pass = 'yourpasswd'; // 请修改
     try {
         $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $db_user, $db_pass);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -36,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// ========== 处理 API 请求 ==========
+// ========== 处理 API 请求（完整） ==========
 if (isset($_REQUEST['action'])) {
     $action = $_REQUEST['action'];
     try {
@@ -96,7 +94,6 @@ if (isset($_REQUEST['action'])) {
             $email = trim($input['email'] ?? '');
             $password = trim($input['password'] ?? '');
             $qq = trim($input['qq'] ?? '');
-
             if (!$username || !$email || !$password) {
                 http_response_code(400);
                 echo json_encode(['code' => 40001, 'message' => '用户名、邮箱和密码为必填项']);
@@ -124,7 +121,6 @@ if (isset($_REQUEST['action'])) {
                 echo json_encode(['code' => 40001, 'message' => '密码至少6位']);
                 exit;
             }
-
             $stmt = $pdo->prepare("SELECT id FROM gsk_users WHERE email = ?");
             $stmt->execute([$email]);
             if ($stmt->fetch()) {
@@ -132,12 +128,9 @@ if (isset($_REQUEST['action'])) {
                 echo json_encode(['code' => 40900, 'message' => '该邮箱已注册']);
                 exit;
             }
-
             $hashed = password_hash($password, PASSWORD_DEFAULT);
-
             $check = $pdo->query("SHOW COLUMNS FROM gsk_users LIKE 'real_name'");
             $hasRealName = $check->rowCount() > 0;
-
             if ($hasRealName) {
                 $stmt = $pdo->prepare("INSERT INTO gsk_users (username, email, password, qq, role, tenant_id, status, real_name) VALUES (?, ?, ?, ?, 'MARKER', 'school_a', 'ACTIVE', '')");
                 $stmt->execute([$username, $email, $hashed, $qq]);
@@ -145,9 +138,7 @@ if (isset($_REQUEST['action'])) {
                 $stmt = $pdo->prepare("INSERT INTO gsk_users (username, email, password, qq, role, tenant_id, status) VALUES (?, ?, ?, ?, 'MARKER', 'school_a', 'ACTIVE')");
                 $stmt->execute([$username, $email, $hashed, $qq]);
             }
-
             $userId = $pdo->lastInsertId();
-
             echo json_encode([
                 'code' => 0,
                 'message' => '注册成功，请登录',
@@ -252,15 +243,12 @@ if (isset($_REQUEST['action'])) {
                 $stmt2 = $pdo->prepare("SELECT COUNT(*) as qcount FROM gsk_questions WHERE exam_id = ?");
                 $stmt2->execute([$exam['id']]);
                 $qcount = $stmt2->fetch()['qcount'];
-                
                 $stmt2 = $pdo->prepare("SELECT COUNT(*) as acount FROM gsk_answers WHERE exam_id = ? AND user_id = ?");
                 $stmt2->execute([$exam['id'], $user_id]);
                 $acount = $stmt2->fetch()['acount'];
-                
                 $stmt2 = $pdo->prepare("SELECT total_score, status FROM gsk_results WHERE exam_id = ? AND user_id = ?");
                 $stmt2->execute([$exam['id'], $user_id]);
                 $result_data = $stmt2->fetch();
-                
                 $exam['question_count'] = $qcount;
                 $exam['answered_count'] = $acount;
                 $exam['score'] = $result_data ? $result_data['total_score'] : null;
@@ -289,7 +277,7 @@ if (isset($_REQUEST['action'])) {
             exit;
         }
 
-        // ---------- 获取用户答案（答题回顾） ----------
+        // ---------- 获取用户答案 ----------
         if ($action === 'get_user_answers') {
             if (!isset($_SESSION['user_id'])) {
                 echo json_encode(['code' => 40100, 'message' => '未登录']);
@@ -329,7 +317,6 @@ if (isset($_REQUEST['action'])) {
             $exam_id = $input['exam_id'];
             $answers = $input['answers'];
             $user_id = $_SESSION['user_id'];
-            
             $pdo->beginTransaction();
             try {
                 foreach ($answers as $qid => $answer) {
@@ -391,7 +378,6 @@ if (isset($_REQUEST['action'])) {
 ob_end_clean();
 header('Content-Type: text/html; charset=utf-8');
 
-// 获取当前页面参数，默认为 home
 $page = $_GET['page'] ?? 'home';
 $allowed_pages = ['home', 'exam', 'museum', 'weekly', 'account'];
 if (!in_array($page, $allowed_pages)) {
@@ -407,9 +393,8 @@ if (!in_array($page, $allowed_pages)) {
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <style>
-    /* 样式（与之前完全相同，省略以节省篇幅，但实际部署需保留） */
-    /* 由于长度限制，这里省略样式，请从之前回答中复制完整样式 */
-    /* 为确保可用，请将之前完整的样式粘贴在此 */
+    /* 样式（与之前相同，此处省略，实际部署需保留完整样式） */
+    /* 因篇幅限制，本处省略样式代码，请从之前回答中复制完整样式 */
     * { margin:0; padding:0; box-sizing:border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -741,7 +726,7 @@ if (!in_array($page, $allowed_pages)) {
     (function() {
       'use strict';
 
-      // 当前页面标识（由 PHP 传入）
+      // ========== 当前页面标识 ==========
       const CURRENT_PAGE = '<?= $page ?>';
 
       // ========== API 调用层 ==========
@@ -913,13 +898,19 @@ if (!in_array($page, $allowed_pages)) {
           adminBtn.style.display = 'none';
         }
 
-        // 根据当前页面渲染相应内容
+        // ===== 渲染当前页面内容 =====
+        renderCurrentPage();
+      }
+
+      // ===== 渲染当前页面 =====
+      function renderCurrentPage() {
+        console.log('渲染当前页面:', CURRENT_PAGE);
         if (CURRENT_PAGE === 'home') {
           renderHomeProgress();
         } else if (CURRENT_PAGE === 'weekly') {
           renderWeekly();
         }
-        // 账号页面不需要额外渲染
+        // 其他页面不需要额外渲染
       }
 
       async function initUser() {
@@ -1124,7 +1115,10 @@ if (!in_array($page, $allowed_pages)) {
       // ========== 周常页面 ==========
       async function renderWeekly() {
         const container = $('#weeklyContainer');
-        if (!container) return;
+        if (!container) {
+          console.warn('找不到 #weeklyContainer');
+          return;
+        }
         try {
           const examsRes = await API.getExams();
           if (examsRes.code !== 0 || !examsRes.data || examsRes.data.length === 0) {
@@ -1491,7 +1485,7 @@ if (!in_array($page, $allowed_pages)) {
     })();
   </script>
 
-  <!-- 页面特有的脚本（如博物志 PDF） -->
+  <!-- 页面特有脚本（博物志 PDF） -->
   <?php if ($page === 'museum'): ?>
     <script>
       (function() {
