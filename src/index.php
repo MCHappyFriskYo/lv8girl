@@ -12,7 +12,7 @@ ob_start();
 
 // ========== 数据库配置 ==========
 function gsk_config() {
-    $host = 'lv8girl-db';
+    $host = 'db';
     $dbname = 'lv8girl';
     $db_user = 'lv8girl';
     $db_pass = 'yourpasswd'; // 请修改
