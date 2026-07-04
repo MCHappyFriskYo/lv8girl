@@ -1,6 +1,6 @@
 <?php
 // gsk_config.php
-$host = 'lv8girl-db';
+$host = 'db';
 $dbname = 'lv8girl';
 $db_user = 'lv8girl';
 $db_pass = 'yourpasswd';
