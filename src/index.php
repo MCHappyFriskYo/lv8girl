@@ -1,19 +1,17 @@
 <?php
 /**
- * LunaticChO 主入口 - 修复周常加载问题
+ * LunaticChO 主入口 - 修复空值错误
  */
-
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 ob_start();
 
-// ========== 数据库配置 ==========
 function gsk_config() {
-    $host = 'lv8girl-db';
+    $host = 'db';
     $dbname = 'lv8girl';
     $db_user = 'lv8girl';
-    $db_pass = 'yourpasswd'; // 请修改
+    $db_pass = 'yourpasswd';
     try {
         $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $db_user, $db_pass);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -34,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// ========== 处理 API 请求（完整） ==========
+// ========== 处理 API 请求 ==========
 if (isset($_REQUEST['action'])) {
     $action = $_REQUEST['action'];
     try {
@@ -209,7 +207,7 @@ if (isset($_REQUEST['action'])) {
             try {
                 $stmt = $pdo->query("SHOW TABLES LIKE 'gsk_exams'");
                 if ($stmt->rowCount() == 0) {
-                    echo json_encode(['code' => 40400, 'message' => '表 gsk_exams 不存在']);
+                    echo json_encode(['code' => 404, 'message' => '表 gsk_exams 不存在']);
                     exit;
                 }
                 $stmt = $pdo->query("SELECT * FROM gsk_exams WHERE status = 'published' ORDER BY published_at DESC");
@@ -217,14 +215,14 @@ if (isset($_REQUEST['action'])) {
                 foreach ($exams as &$exam) {
                     $stmt2 = $pdo->prepare("SELECT COUNT(*) as qcount FROM gsk_questions WHERE exam_id = ?");
                     $stmt2->execute([$exam['id']]);
-                    $exam['question_count'] = $stmt2->fetch()['qcount'];
+                    $exam['question_count'] = $stmt2->fetch()['qcount'] ?? 0;
                     $stmt2 = $pdo->prepare("SELECT SUM(score) as total FROM gsk_questions WHERE exam_id = ?");
                     $stmt2->execute([$exam['id']]);
                     $exam['total_score'] = $stmt2->fetch()['total'] ?? 0;
                 }
                 echo json_encode(['code' => 0, 'data' => $exams]);
             } catch (Exception $e) {
-                echo json_encode(['code' => 50000, 'message' => '数据库错误：' . $e->getMessage()]);
+                echo json_encode(['code' => 500, 'message' => '异常：' . $e->getMessage()]);
             }
             exit;
         }
@@ -360,7 +358,6 @@ if (isset($_REQUEST['action'])) {
             exit;
         }
 
-        // 未知 action
         http_response_code(400);
         echo json_encode(['code' => 40001, 'message' => '无效的操作']);
         exit;
@@ -393,159 +390,37 @@ if (!in_array($page, $allowed_pages)) {
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <style>
-    /* 样式（与之前相同，此处省略，实际部署需保留完整样式） */
-    /* 因篇幅限制，本处省略样式代码，请从之前回答中复制完整样式 */
+    /* ===== 样式（精简，但足够使用） ===== */
     * { margin:0; padding:0; box-sizing:border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      background: #f6f8fa;
-      color: #1e293b;
-      line-height: 1.5;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      background-image: linear-gradient(rgba(11,59,76,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(11,59,76,0.02) 1px,transparent 1px);
-      background-size: 40px 40px;
-    }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #f6f8fa; color: #1e293b; line-height: 1.5; min-height: 100vh; display: flex; flex-direction: column; background-image: linear-gradient(rgba(11,59,76,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(11,59,76,0.02) 1px,transparent 1px); background-size: 40px 40px; }
     a { text-decoration: none; color: inherit; }
-    .navbar {
-      background: #0b3b4c;
-      padding: 0 2.5rem;
-      height: 64px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 2px solid #d4a373;
-      position: sticky;
-      top: 0;
-      z-index: 100;
-    }
-    .navbar .brand {
-      font-size: 1.4rem;
-      font-weight: 700;
-      color: #f0e6d3;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
+    .navbar { background: #0b3b4c; padding: 0 2.5rem; height: 64px; display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #d4a373; position: sticky; top: 0; z-index: 100; }
+    .navbar .brand { font-size: 1.4rem; font-weight: 700; color: #f0e6d3; display: flex; align-items: center; gap: 10px; }
     .navbar .brand i { color: #d4a373; font-size: 1.6rem; }
-    .nav-links {
-      display: flex;
-      list-style: none;
-      gap: 2rem;
-      align-items: center;
-    }
-    .nav-links li a {
-      color: #cbd5e1;
-      font-weight: 500;
-      font-size: 0.95rem;
-      padding: 0.3rem 0;
-      border-bottom: 2px solid transparent;
-      transition: border-color 0.2s, color 0.2s;
-    }
-    .nav-links li a:hover,
-    .nav-links li a.active {
-      color: #ffffff;
-      border-bottom-color: #d4a373;
-    }
-    .hamburger {
-      display: none;
-      flex-direction: column;
-      gap: 4px;
-      cursor: pointer;
-      background: none;
-      border: none;
-      padding: 4px;
-    }
+    .nav-links { display: flex; list-style: none; gap: 2rem; align-items: center; }
+    .nav-links li a { color: #cbd5e1; font-weight: 500; font-size: 0.95rem; padding: 0.3rem 0; border-bottom: 2px solid transparent; transition: border-color 0.2s, color 0.2s; }
+    .nav-links li a:hover, .nav-links li a.active { color: #ffffff; border-bottom-color: #d4a373; }
+    .hamburger { display: none; flex-direction: column; gap: 4px; cursor: pointer; background: none; border: none; padding: 4px; }
     .hamburger span { display: block; width: 26px; height: 2px; background: #cbd5e1; border-radius: 2px; }
-    .container {
-      max-width: 1140px;
-      margin: 0 auto;
-      padding: 2rem 1.5rem;
-      flex: 1;
-      width: 100%;
-    }
-    .card {
-      background: #ffffff;
-      border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.04);
-      padding: 1.8rem 2rem;
-      margin-bottom: 2rem;
-      border: 1px solid #e9edf2;
-      transition: box-shadow 0.2s;
-    }
+    .container { max-width: 1140px; margin: 0 auto; padding: 2rem 1.5rem; flex: 1; width: 100%; }
+    .card { background: #ffffff; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); padding: 1.8rem 2rem; margin-bottom: 2rem; border: 1px solid #e9edf2; transition: box-shadow 0.2s; }
     .card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.06); }
-    .card-title {
-      font-size: 1.3rem;
-      font-weight: 600;
-      margin-bottom: 1rem;
-      color: #0b3b4c;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
+    .card-title { font-size: 1.3rem; font-weight: 600; margin-bottom: 1rem; color: #0b3b4c; display: flex; align-items: center; gap: 10px; }
     .card-title i { color: #d4a373; width: 1.6rem; text-align: center; }
-    .hero {
-      background: linear-gradient(145deg, #ffffff, #f9fafb);
-      border-radius: 12px;
-      padding: 2.5rem 2.5rem 2rem;
-      margin-bottom: 2rem;
-      border: 1px solid #e9edf2;
-      text-align: center;
-    }
-    .hero-logo {
-      display: inline-block;
-      width: 100px;
-      height: 100px;
-      border-radius: 50%;
-      background: #f0f4f8;
-      border: 3px solid #d4a373;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
-      margin-bottom: 1rem;
-      line-height: 100px;
-      text-align: center;
-      font-size: 2.8rem;
-      color: #0b3b4c;
-      transition: transform 0.2s;
-    }
+    .hero { background: linear-gradient(145deg, #ffffff, #f9fafb); border-radius: 12px; padding: 2.5rem 2.5rem 2rem; margin-bottom: 2rem; border: 1px solid #e9edf2; text-align: center; }
+    .hero-logo { display: inline-block; width: 100px; height: 100px; border-radius: 50%; background: #f0f4f8; border: 3px solid #d4a373; box-shadow: 0 4px 12px rgba(0,0,0,0.06); margin-bottom: 1rem; line-height: 100px; text-align: center; font-size: 2.8rem; color: #0b3b4c; transition: transform 0.2s; }
     .hero-logo:hover { transform: scale(1.02); }
     .hero-logo i { color: #0b3b4c; }
-    .hero h1 {
-      font-size: 2.6rem;
-      font-weight: 700;
-      color: #0b3b4c;
-      letter-spacing: -0.5px;
-    }
+    .hero h1 { font-size: 2.6rem; font-weight: 700; color: #0b3b4c; letter-spacing: -0.5px; }
     .hero h1 i { color: #d4a373; margin-right: 8px; }
-    .hero p {
-      font-size: 1.15rem;
-      color: #475569;
-      max-width: 600px;
-      margin: 0.4rem auto 0;
-    }
-    .features-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 1.5rem;
-      margin-top: 1.8rem;
-    }
-    .feature-item {
-      background: #f8fafc;
-      padding: 1.5rem 0.8rem;
-      border-radius: 8px;
-      text-align: center;
-      border: 1px solid #e9edf2;
-      transition: transform 0.15s;
-    }
+    .hero p { font-size: 1.15rem; color: #475569; max-width: 600px; margin: 0.4rem auto 0; }
+    .features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 1.8rem; }
+    .feature-item { background: #f8fafc; padding: 1.5rem 0.8rem; border-radius: 8px; text-align: center; border: 1px solid #e9edf2; transition: transform 0.15s; }
     .feature-item:hover { transform: translateY(-2px); }
     .feature-item i { font-size: 2rem; color: #0b3b4c; margin-bottom: 0.5rem; display: block; }
     .feature-item h4 { font-weight: 600; color: #0b3b4c; }
     .feature-item p { color: #64748b; font-size: 0.9rem; margin-top: 0.2rem; }
-    .exam-empty {
-      text-align: center;
-      padding: 3rem 0;
-      color: #94a3b8;
-    }
+    .exam-empty { text-align: center; padding: 3rem 0; color: #94a3b8; }
     .exam-empty i { font-size: 4rem; color: #d4a373; margin-bottom: 1rem; display: block; }
     .exam-empty h3 { font-size: 1.5rem; color: #0b3b4c; margin-bottom: 0.5rem; }
 
@@ -667,31 +542,9 @@ if (!in_array($page, $allowed_pages)) {
     .footer { background: #0b3b4c; color: #94a3b8; text-align: center; padding: 1.2rem 1rem; font-size: 0.85rem; border-top: 2px solid #d4a373; margin-top: 1.5rem; }
     .footer span { color: #d4a373; }
 
-    @media (max-width: 820px) {
-      .navbar { padding: 0 1.5rem; }
-      .features-grid { grid-template-columns: 1fr 1fr; }
-      .hero-logo { width: 80px; height: 80px; line-height: 80px; font-size: 2.2rem; }
-      .pdf-viewer { min-height: 350px; }
-    }
-    @media (max-width: 640px) {
-      .hamburger { display: flex; }
-      .nav-links { position: absolute; top: 64px; left: 0; right: 0; background: #0b3b4c; flex-direction: column; padding: 0.8rem 0; gap: 0; display: none; border-top: 1px solid #1e4c5e; }
-      .nav-links.open { display: flex; }
-      .nav-links li { width: 100%; text-align: center; }
-      .nav-links li a { padding: 0.6rem 0; border-bottom: none; }
-      .nav-links li a:hover { background: #1e4c5e; color: #fff; }
-      .features-grid { grid-template-columns: 1fr; }
-      .container { padding: 1rem 0.8rem; }
-      .card { padding: 1.2rem; }
-      .hero { padding: 1.8rem 1.2rem; }
-      .hero h1 { font-size: 2rem; }
-      .hero-logo { width: 72px; height: 72px; line-height: 72px; font-size: 2rem; }
-      .pdf-viewer { min-height: 280px; }
-      .exam-cards { grid-template-columns: 1fr; }
-    }
-    @media (max-width: 400px) {
-      .pdf-viewer { min-height: 200px; }
-    }
+    @media (max-width: 820px) { .navbar { padding: 0 1.5rem; } .features-grid { grid-template-columns: 1fr 1fr; } .hero-logo { width: 80px; height: 80px; line-height: 80px; font-size: 2.2rem; } .pdf-viewer { min-height: 350px; } }
+    @media (max-width: 640px) { .hamburger { display: flex; } .nav-links { position: absolute; top: 64px; left: 0; right: 0; background: #0b3b4c; flex-direction: column; padding: 0.8rem 0; gap: 0; display: none; border-top: 1px solid #1e4c5e; } .nav-links.open { display: flex; } .nav-links li { width: 100%; text-align: center; } .nav-links li a { padding: 0.6rem 0; border-bottom: none; } .nav-links li a:hover { background: #1e4c5e; color: #fff; } .features-grid { grid-template-columns: 1fr; } .container { padding: 1rem 0.8rem; } .card { padding: 1.2rem; } .hero { padding: 1.8rem 1.2rem; } .hero h1 { font-size: 2rem; } .hero-logo { width: 72px; height: 72px; line-height: 72px; font-size: 2rem; } .pdf-viewer { min-height: 280px; } .exam-cards { grid-template-columns: 1fr; } }
+    @media (max-width: 400px) { .pdf-viewer { min-height: 200px; } }
   </style>
 </head>
 <body>
@@ -725,14 +578,10 @@ if (!in_array($page, $allowed_pages)) {
   <script>
     (function() {
       'use strict';
-
-      // ========== 当前页面标识 ==========
       const CURRENT_PAGE = '<?= $page ?>';
 
-      // ========== API 调用层 ==========
       const API = {
         baseURL: window.location.pathname,
-
         async _request(action, data = null, method = 'POST') {
             const url = this.baseURL + '?action=' + action;
             const options = {
@@ -746,7 +595,6 @@ if (!in_array($page, $allowed_pages)) {
             if (!res.ok) throw json;
             return json;
         },
-
         async _get(action, params = {}) {
             const url = this.baseURL + '?action=' + action + '&' + new URLSearchParams(params);
             const res = await fetch(url, { credentials: 'include' });
@@ -754,49 +602,24 @@ if (!in_array($page, $allowed_pages)) {
             if (!res.ok) throw json;
             return json;
         },
-
-        async login(username, password) {
-            return this._request('login', { username, password });
-        },
-        async register(username, email, password, qq) {
-            return this._request('register', { username, email, password, qq });
-        },
-        async getCurrentUser() {
-            return this._request('get_user', null, 'GET');
-        },
-        async logout() {
-            return this._request('logout');
-        },
-        async updateAvatar(avatar) {
-            return this._request('update_avatar', { avatar });
-        },
-        async getExams() {
-            return this._get('get_exams');
-        },
-        async getUserExamStatus() {
-            return this._get('get_user_exam_status');
-        },
-        async getExamQuestions(exam_id) {
-            return this._get('get_exam_questions', { exam_id });
-        },
-        async getUserAnswers(exam_id) {
-            return this._get('get_user_answers', { exam_id });
-        },
-        async submitAnswers(exam_id, answers) {
-            return this._request('submit_answers', { exam_id, answers });
-        },
-        async getRanking(exam_id) {
-            return this._get('get_ranking', { exam_id });
-        }
+        async login(username, password) { return this._request('login', { username, password }); },
+        async register(username, email, password, qq) { return this._request('register', { username, email, password, qq }); },
+        async getCurrentUser() { return this._request('get_user', null, 'GET'); },
+        async logout() { return this._request('logout'); },
+        async updateAvatar(avatar) { return this._request('update_avatar', { avatar }); },
+        async getExams() { return this._get('get_exams'); },
+        async getUserExamStatus() { return this._get('get_user_exam_status'); },
+        async getExamQuestions(exam_id) { return this._get('get_exam_questions', { exam_id }); },
+        async getUserAnswers(exam_id) { return this._get('get_user_answers', { exam_id }); },
+        async submitAnswers(exam_id, answers) { return this._request('submit_answers', { exam_id, answers }); },
+        async getRanking(exam_id) { return this._get('get_ranking', { exam_id }); }
       };
 
-      // ========== 公用 UI 控制 ==========
+      // ========== 公用 UI ==========
       const $ = (s) => document.querySelector(s);
       const $$ = (s) => document.querySelectorAll(s);
-
       const hamburger = $('#hamburger');
       const navList = $('#navLinks');
-
       hamburger.addEventListener('click', () => navList.classList.toggle('open'));
 
       function showToast(msg, type = 'info') {
@@ -807,10 +630,7 @@ if (!in_array($page, $allowed_pages)) {
         t._timer = setTimeout(() => t.classList.remove('show'), 3000);
       }
 
-      // ========== 全局状态 ==========
       let currentUser = null;
-      let currentExamId = null;
-      let examQuestions = [];
 
       // ========== 头像上传 ==========
       function handleAvatarUpload(file) {
@@ -833,9 +653,11 @@ if (!in_array($page, $allowed_pages)) {
               showToast('头像更新成功', 'success');
               const img = $('#avatarImg');
               const placeholder = $('#avatarPlaceholder');
-              img.src = base64;
-              img.style.display = 'block';
-              placeholder.style.display = 'none';
+              if (img) {
+                img.src = base64;
+                img.style.display = 'block';
+              }
+              if (placeholder) placeholder.style.display = 'none';
               if (currentUser) currentUser.avatar = base64;
             } else {
               showToast(res.message || '上传失败', 'error');
@@ -857,60 +679,65 @@ if (!in_array($page, $allowed_pages)) {
         const roleLabel = $('#profileRole');
 
         if (user) {
-          profile.classList.add('active');
-          tabs.style.display = 'none';
-          forms.forEach(f => f.style.display = 'none');
+          if (profile) profile.classList.add('active');
+          if (tabs) tabs.style.display = 'none';
+          if (forms) forms.forEach(f => f.style.display = 'none');
 
-          $('#profileEmail').textContent = user.username + ' (' + user.email + ')';
-          $('#profileQQ').textContent = 'QQ: ' + (user.qq || '未设置');
+          const emailEl = $('#profileEmail');
+          if (emailEl) emailEl.textContent = user.username + ' (' + user.email + ')';
+          const qqEl = $('#profileQQ');
+          if (qqEl) qqEl.textContent = 'QQ: ' + (user.qq || '未设置');
 
           const roleMap = { 'ADMIN': '管理员', 'TEACHER': '教师', 'MARKER': '学生' };
-          roleLabel.textContent = roleMap[user.role] || user.role;
+          if (roleLabel) roleLabel.textContent = roleMap[user.role] || user.role;
 
           const img = $('#avatarImg');
           const placeholder = $('#avatarPlaceholder');
           if (user.avatar) {
-            img.src = user.avatar;
-            img.style.display = 'block';
-            placeholder.style.display = 'none';
+            if (img) {
+              img.src = user.avatar;
+              img.style.display = 'block';
+            }
+            if (placeholder) placeholder.style.display = 'none';
           } else {
-            img.style.display = 'none';
-            placeholder.style.display = 'flex';
+            if (img) img.style.display = 'none';
+            if (placeholder) placeholder.style.display = 'flex';
           }
 
-          if (user.role === 'ADMIN' || user.role === 'TEACHER') {
-            adminBtn.style.display = 'inline-block';
-          } else {
-            adminBtn.style.display = 'none';
+          if (adminBtn) {
+            if (user.role === 'ADMIN' || user.role === 'TEACHER') {
+              adminBtn.style.display = 'inline-block';
+            } else {
+              adminBtn.style.display = 'none';
+            }
           }
         } else {
-          profile.classList.remove('active');
-          tabs.style.display = 'flex';
-          forms.forEach(f => f.style.display = '');
-          $$('.auth-tabs button').forEach(b => b.classList.remove('active'));
-          document.querySelector('[data-tab="login"]').classList.add('active');
-          $('#loginForm').classList.add('active');
-          $('#registerForm').classList.remove('active');
-          $('#loginError').style.display = 'none';
-          $('#loginSuccess').style.display = 'none';
-          $('#registerError').style.display = 'none';
-          $('#registerSuccess').style.display = 'none';
-          adminBtn.style.display = 'none';
+          if (profile) profile.classList.remove('active');
+          if (tabs) tabs.style.display = 'flex';
+          if (forms) forms.forEach(f => f.style.display = '');
+          if (adminBtn) adminBtn.style.display = 'none';
+          // 重置 tab 选中状态
+          if (tabs) {
+            const btns = tabs.querySelectorAll('button');
+            btns.forEach(b => b.classList.remove('active'));
+            const loginTab = tabs.querySelector('[data-tab="login"]');
+            if (loginTab) loginTab.classList.add('active');
+          }
+          const loginForm = $('#loginForm');
+          const registerForm = $('#registerForm');
+          if (loginForm) loginForm.classList.add('active');
+          if (registerForm) registerForm.classList.remove('active');
+          const loginError = $('#loginError');
+          if (loginError) loginError.style.display = 'none';
+          const loginSuccess = $('#loginSuccess');
+          if (loginSuccess) loginSuccess.style.display = 'none';
+          const registerError = $('#registerError');
+          if (registerError) registerError.style.display = 'none';
+          const registerSuccess = $('#registerSuccess');
+          if (registerSuccess) registerSuccess.style.display = 'none';
         }
 
-        // ===== 渲染当前页面内容 =====
         renderCurrentPage();
-      }
-
-      // ===== 渲染当前页面 =====
-      function renderCurrentPage() {
-        console.log('渲染当前页面:', CURRENT_PAGE);
-        if (CURRENT_PAGE === 'home') {
-          renderHomeProgress();
-        } else if (CURRENT_PAGE === 'weekly') {
-          renderWeekly();
-        }
-        // 其他页面不需要额外渲染
       }
 
       async function initUser() {
@@ -926,107 +753,116 @@ if (!in_array($page, $allowed_pages)) {
         }
       }
 
-      // 认证切换
-      const authTabs = $$('.auth-tabs button');
-      if (authTabs.length) {
-        authTabs.forEach(tab => {
+      function renderCurrentPage() {
+        if (CURRENT_PAGE === 'home') renderHomeProgress();
+        else if (CURRENT_PAGE === 'weekly') renderWeekly();
+      }
+
+      // ========== 账号页面认证切换 ==========
+      const authTabs = document.querySelector('.auth-tabs');
+      if (authTabs) {
+        const buttons = authTabs.querySelectorAll('button');
+        buttons.forEach(tab => {
           tab.addEventListener('click', function() {
-            authTabs.forEach(t => t.classList.remove('active'));
+            buttons.forEach(t => t.classList.remove('active'));
             this.classList.add('active');
             const target = this.dataset.tab;
-            $$('.auth-form').forEach(f => f.classList.remove('active'));
+            const forms = document.querySelectorAll('.auth-form');
+            forms.forEach(f => f.classList.remove('active'));
             if (target === 'login') {
-              $('#loginForm').classList.add('active');
-              $('#loginError').style.display = 'none';
-              $('#loginSuccess').style.display = 'none';
+              const loginForm = document.getElementById('loginForm');
+              if (loginForm) loginForm.classList.add('active');
+              const loginError = document.getElementById('loginError');
+              if (loginError) loginError.style.display = 'none';
+              const loginSuccess = document.getElementById('loginSuccess');
+              if (loginSuccess) loginSuccess.style.display = 'none';
             } else {
-              $('#registerForm').classList.add('active');
-              $('#registerError').style.display = 'none';
-              $('#registerSuccess').style.display = 'none';
+              const registerForm = document.getElementById('registerForm');
+              if (registerForm) registerForm.classList.add('active');
+              const registerError = document.getElementById('registerError');
+              if (registerError) registerError.style.display = 'none';
+              const registerSuccess = document.getElementById('registerSuccess');
+              if (registerSuccess) registerSuccess.style.display = 'none';
             }
           });
         });
       }
 
-      // 登录
-      const loginForm = $('#loginForm');
+      // ========== 登录 ==========
+      const loginForm = document.getElementById('loginForm');
       if (loginForm) {
         loginForm.addEventListener('submit', async function(e) {
           e.preventDefault();
-          const username = $('#loginUsername').value.trim();
-          const password = $('#loginPassword').value.trim();
-          const err = $('#loginError');
-          const suc = $('#loginSuccess');
-          err.style.display = 'none';
-          suc.style.display = 'none';
-          if (!username || !password) { err.textContent = '请填写完整'; err.style.display = 'block'; return; }
+          const username = document.getElementById('loginUsername').value.trim();
+          const password = document.getElementById('loginPassword').value.trim();
+          const err = document.getElementById('loginError');
+          const suc = document.getElementById('loginSuccess');
+          if (err) err.style.display = 'none';
+          if (suc) suc.style.display = 'none';
+          if (!username || !password) {
+            if (err) { err.textContent = '请填写完整'; err.style.display = 'block'; }
+            return;
+          }
           try {
             const res = await API.login(username, password);
             if (res.code === 0) {
-              suc.textContent = '✅ 登录成功';
-              suc.style.display = 'block';
+              if (suc) { suc.textContent = '✅ 登录成功'; suc.style.display = 'block'; }
               showToast('欢迎回来', 'success');
-              $('#loginUsername').value = '';
-              $('#loginPassword').value = '';
+              if (document.getElementById('loginUsername')) document.getElementById('loginUsername').value = '';
+              if (document.getElementById('loginPassword')) document.getElementById('loginPassword').value = '';
               await initUser();
             } else {
-              err.textContent = res.message || '登录失败';
-              err.style.display = 'block';
+              if (err) { err.textContent = res.message || '登录失败'; err.style.display = 'block'; }
             }
           } catch (ex) {
-            err.textContent = ex.message || '网络错误';
-            err.style.display = 'block';
+            if (err) { err.textContent = ex.message || '网络错误'; err.style.display = 'block'; }
           }
         });
       }
 
-      // 注册
-      const registerForm = $('#registerForm');
+      // ========== 注册 ==========
+      const registerForm = document.getElementById('registerForm');
       if (registerForm) {
         registerForm.addEventListener('submit', async function(e) {
           e.preventDefault();
-          const username = $('#regUsername').value.trim();
-          const email = $('#regEmail').value.trim();
-          const password = $('#regPassword').value.trim();
-          const qq = $('#regQQ').value.trim();
-          const err = $('#registerError');
-          const suc = $('#registerSuccess');
-          err.style.display = 'none';
-          suc.style.display = 'none';
+          const username = document.getElementById('regUsername').value.trim();
+          const email = document.getElementById('regEmail').value.trim();
+          const password = document.getElementById('regPassword').value.trim();
+          const qq = document.getElementById('regQQ').value.trim();
+          const err = document.getElementById('registerError');
+          const suc = document.getElementById('registerSuccess');
+          if (err) err.style.display = 'none';
+          if (suc) suc.style.display = 'none';
           if (!username || !email || !password) {
-            err.textContent = '用户名、邮箱和密码为必填项';
-            err.style.display = 'block';
+            if (err) { err.textContent = '用户名、邮箱和密码为必填项'; err.style.display = 'block'; }
             return;
           }
           if (password.length < 6) {
-            err.textContent = '密码至少6位';
-            err.style.display = 'block';
+            if (err) { err.textContent = '密码至少6位'; err.style.display = 'block'; }
             return;
           }
           try {
             const res = await API.register(username, email, password, qq);
             if (res.code === 0) {
-              suc.textContent = '🎉 ' + res.message;
-              suc.style.display = 'block';
+              if (suc) { suc.textContent = '🎉 ' + res.message; suc.style.display = 'block'; }
               showToast('注册成功，请登录', 'success');
-              $('#regUsername').value = '';
-              $('#regEmail').value = '';
-              $('#regPassword').value = '';
-              $('#regQQ').value = '';
-              document.querySelector('[data-tab="login"]').click();
+              if (document.getElementById('regUsername')) document.getElementById('regUsername').value = '';
+              if (document.getElementById('regEmail')) document.getElementById('regEmail').value = '';
+              if (document.getElementById('regPassword')) document.getElementById('regPassword').value = '';
+              if (document.getElementById('regQQ')) document.getElementById('regQQ').value = '';
+              const loginTab = document.querySelector('.auth-tabs button[data-tab="login"]');
+              if (loginTab) loginTab.click();
             } else {
-              err.textContent = res.message || '注册失败';
-              err.style.display = 'block';
+              if (err) { err.textContent = res.message || '注册失败'; err.style.display = 'block'; }
             }
           } catch (ex) {
-            err.textContent = ex.message || '网络错误';
-            err.style.display = 'block';
+            if (err) { err.textContent = ex.message || '网络错误'; err.style.display = 'block'; }
           }
         });
       }
 
-      // 退出
-      const logoutBtn = $('#logoutBtn');
+      // ========== 退出 ==========
+      const logoutBtn = document.getElementById('logoutBtn');
       if (logoutBtn) {
         logoutBtn.addEventListener('click', async function() {
           try {
@@ -1040,16 +876,16 @@ if (!in_array($page, $allowed_pages)) {
         });
       }
 
-      // 头像上传点击
-      const avatarWrap = $('#avatarWrap');
-      const avatarInput = $('#avatarInput');
+      // ========== 头像上传 ==========
+      const avatarWrap = document.getElementById('avatarWrap');
+      const avatarInput = document.getElementById('avatarInput');
       if (avatarWrap) {
         avatarWrap.addEventListener('click', function() {
           if (!currentUser) {
             showToast('请先登录', 'error');
             return;
           }
-          avatarInput.click();
+          if (avatarInput) avatarInput.click();
         });
       }
       if (avatarInput) {
@@ -1063,7 +899,7 @@ if (!in_array($page, $allowed_pages)) {
 
       // ========== 主页进度 ==========
       async function renderHomeProgress() {
-        const container = $('#homeProgressContent');
+        const container = document.getElementById('homeProgressContent');
         if (!container) return;
         if (!currentUser) {
           container.innerHTML = `
@@ -1114,14 +950,17 @@ if (!in_array($page, $allowed_pages)) {
 
       // ========== 周常页面 ==========
       async function renderWeekly() {
-        const container = $('#weeklyContainer');
-        if (!container) {
-          console.warn('找不到 #weeklyContainer');
-          return;
-        }
+        const container = document.getElementById('weeklyContainer');
+        if (!container) return;
         try {
+          container.innerHTML = '<p style="color:#94a3b8; text-align:center; padding:1rem 0;">加载中...</p>';
           const examsRes = await API.getExams();
-          if (examsRes.code !== 0 || !examsRes.data || examsRes.data.length === 0) {
+          console.log('getExams 响应:', examsRes);
+          if (examsRes.code !== 0) {
+            container.innerHTML = `<p style="color:#b91c1c; text-align:center; padding:1rem 0;">❌ 加载失败：${examsRes.message || '未知错误'}</p>`;
+            return;
+          }
+          if (!examsRes.data || examsRes.data.length === 0) {
             container.innerHTML = '<p style="color:#94a3b8; text-align:center; padding:1rem 0;">暂无已发布的考试</p>';
             return;
           }
@@ -1184,12 +1023,12 @@ if (!in_array($page, $allowed_pages)) {
           container.innerHTML = rankingHtml + cardsHtml;
 
         } catch (e) {
-          container.innerHTML = '<p style="color:#b91c1c; text-align:center; padding:1rem 0;">❌ 加载失败，请稍后重试。</p>';
+          container.innerHTML = `<p style="color:#b91c1c; text-align:center; padding:1rem 0;">❌ 请求异常：${e.message}</p>`;
           console.error('周常加载错误:', e);
         }
       }
 
-      // ========== 核心交互（考试） ==========
+      // ========== 考试交互 ==========
       window.LunaticChO = {
         handleExamClick: async function(examId) {
           if (!currentUser) {
@@ -1209,7 +1048,6 @@ if (!in_array($page, $allowed_pages)) {
           } catch (e) {}
           this.startExam(examId);
         },
-
         startExam: async function(examId) {
           if (!currentUser) {
             showToast('请先登录后再答题', 'error');
@@ -1220,9 +1058,9 @@ if (!in_array($page, $allowed_pages)) {
           try {
             const res = await API.getExamQuestions(examId);
             if (res.code === 0) {
-              examQuestions = res.data.questions || [];
+              const questions = res.data.questions || [];
               const exam = res.data.exam || { title: '考试', description: '' };
-              this.renderExam(exam, examQuestions);
+              this.renderExam(exam, questions);
             } else {
               showToast(res.message || '加载题目失败', 'error');
             }
@@ -1230,9 +1068,8 @@ if (!in_array($page, $allowed_pages)) {
             showToast('加载题目失败: ' + (e.message || ''), 'error');
           }
         },
-
         renderExam: function(exam, questions) {
-          const container = $('#weeklyContainer');
+          const container = document.getElementById('weeklyContainer');
           if (!container) return;
           if (!questions || questions.length === 0) {
             container.innerHTML = '<p style="color:#94a3b8; text-align:center; padding:1rem 0;">该考试暂无题目。</p>';
@@ -1274,7 +1111,7 @@ if (!in_array($page, $allowed_pages)) {
               });
             } else if (q.type === 'fill') {
               html += `<input type="text" name="q_${q.id}" placeholder="请输入答案" style="width:100%; padding:0.5rem; border:1px solid #d1d9e6; border-radius:6px;">`;
-            } else { // essay
+            } else {
               html += `<textarea name="q_${q.id}" placeholder="请输入你的解答" rows="4"></textarea>`;
             }
             html += `</div></div>`;
@@ -1331,9 +1168,8 @@ if (!in_array($page, $allowed_pages)) {
             }
           });
         },
-
         viewAnswer: async function(examId) {
-          const container = $('#weeklyContainer');
+          const container = document.getElementById('weeklyContainer');
           if (!container) return;
           try {
             const res = await API.getUserAnswers(examId);
@@ -1415,9 +1251,8 @@ if (!in_array($page, $allowed_pages)) {
             showToast('加载答卷失败: ' + (e.message || ''), 'error');
           }
         },
-
         viewRanking: async function(examId) {
-          const container = $('#weeklyContainer');
+          const container = document.getElementById('weeklyContainer');
           if (!container) return;
           try {
             const res = await API.getRanking(examId);
@@ -1467,103 +1302,96 @@ if (!in_array($page, $allowed_pages)) {
             showToast('加载排行榜失败', 'error');
           }
         },
-
         backToExams: function() {
           window.location.href = '?page=weekly';
         }
       };
 
-      // ========== 页面加载初始化 ==========
+      // ========== 初始化 ==========
       initUser();
-
-      // 菜单关闭
       document.addEventListener('click', (e) => {
-        if (!e.target.closest('.navbar')) navList.classList.remove('open');
+        if (!e.target.closest('.navbar')) {
+          const nav = document.getElementById('navLinks');
+          if (nav) nav.classList.remove('open');
+        }
       });
 
       console.log('LunaticChO 启动，当前页面：', CURRENT_PAGE);
     })();
   </script>
 
-  <!-- 页面特有脚本（博物志 PDF） -->
+  <!-- 博物志 PDF 脚本 -->
   <?php if ($page === 'museum'): ?>
-    <script>
-      (function() {
-        'use strict';
-        const PDF_URL = 'yan_shi_bo_wu_zhi.pdf';
-        let pdfDoc = null,
-            pageNum = 1,
-            pageRendering = false,
-            pageNumPending = null,
-            scale = 2.0;
-        const canvas = document.createElement('canvas');
-        const viewer = document.getElementById('pdfViewer');
-        if (!viewer) return;
-        const ctx = canvas.getContext('2d');
-        viewer.innerHTML = '';
-        viewer.appendChild(canvas);
+  <script>
+    (function() {
+      'use strict';
+      const PDF_URL = 'yan_shi_bo_wu_zhi.pdf';
+      let pdfDoc = null, pageNum = 1, pageRendering = false, pageNumPending = null, scale = 2.0;
+      const canvas = document.createElement('canvas');
+      const viewer = document.getElementById('pdfViewer');
+      if (!viewer) return;
+      const ctx = canvas.getContext('2d');
+      viewer.innerHTML = '';
+      viewer.appendChild(canvas);
 
-        function renderPage(num) {
-          pageRendering = true;
-          pdfDoc.getPage(num).then(function(page) {
-            const viewport = page.getViewport({ scale: scale });
-            canvas.height = viewport.height;
-            canvas.width = viewport.width;
-            canvas.style.width = '100%';
-            canvas.style.height = 'auto';
-            const renderContext = {
-              canvasContext: ctx,
-              viewport: viewport
-            };
-            const renderTask = page.render(renderContext);
-            renderTask.promise.then(function() {
-              pageRendering = false;
-              if (pageNumPending !== null) {
-                renderPage(pageNumPending);
-                pageNumPending = null;
-              }
-            });
+      function renderPage(num) {
+        pageRendering = true;
+        pdfDoc.getPage(num).then(function(page) {
+          const viewport = page.getViewport({ scale: scale });
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+          canvas.style.width = '100%';
+          canvas.style.height = 'auto';
+          const renderContext = { canvasContext: ctx, viewport: viewport };
+          const renderTask = page.render(renderContext);
+          renderTask.promise.then(function() {
+            pageRendering = false;
+            if (pageNumPending !== null) {
+              renderPage(pageNumPending);
+              pageNumPending = null;
+            }
           });
-          document.getElementById('pdfPageInfo').textContent = num + ' / ' + pdfDoc.numPages;
-          document.getElementById('pdfPrev').disabled = (num <= 1);
-          document.getElementById('pdfNext').disabled = (num >= pdfDoc.numPages);
-        }
-
-        function queueRenderPage(num) {
-          if (pageRendering) {
-            pageNumPending = num;
-          } else {
-            renderPage(num);
-          }
-        }
-
-        function loadPDF() {
-          pdfjsLib.getDocument(PDF_URL).promise.then(function(pdf) {
-            pdfDoc = pdf;
-            pageNum = 1;
-            renderPage(pageNum);
-          }).catch(function(err) {
-            viewer.innerHTML = '<div style="text-align:center;padding:2rem;color:#b91c1c;"><i class="fas fa-exclamation-triangle" style="font-size:2.5rem;display:block;margin-bottom:0.5rem;"></i><p>无法加载 PDF 文件，请确保文件存在且路径正确。</p><p style="font-size:0.85rem;color:#94a3b8;">' + err.message + '</p></div>';
-            console.error('PDF加载错误:', err);
-          });
-        }
-
-        document.getElementById('pdfPrev').addEventListener('click', function() {
-          if (pdfDoc && pageNum > 1) {
-            pageNum--;
-            queueRenderPage(pageNum);
-          }
         });
-        document.getElementById('pdfNext').addEventListener('click', function() {
-          if (pdfDoc && pageNum < pdfDoc.numPages) {
-            pageNum++;
-            queueRenderPage(pageNum);
-          }
-        });
+        document.getElementById('pdfPageInfo').textContent = num + ' / ' + pdfDoc.numPages;
+        document.getElementById('pdfPrev').disabled = (num <= 1);
+        document.getElementById('pdfNext').disabled = (num >= pdfDoc.numPages);
+      }
 
-        loadPDF();
-      })();
-    </script>
+      function queueRenderPage(num) {
+        if (pageRendering) {
+          pageNumPending = num;
+        } else {
+          renderPage(num);
+        }
+      }
+
+      function loadPDF() {
+        pdfjsLib.getDocument(PDF_URL).promise.then(function(pdf) {
+          pdfDoc = pdf;
+          pageNum = 1;
+          renderPage(pageNum);
+        }).catch(function(err) {
+          viewer.innerHTML = '<div style="text-align:center;padding:2rem;color:#b91c1c;"><i class="fas fa-exclamation-triangle" style="font-size:2.5rem;display:block;margin-bottom:0.5rem;"></i><p>无法加载 PDF 文件，请确保文件存在且路径正确。</p><p style="font-size:0.85rem;color:#94a3b8;">' + err.message + '</p></div>';
+          console.error('PDF加载错误:', err);
+        });
+      }
+
+      document.getElementById('pdfPrev').addEventListener('click', function() {
+        if (pdfDoc && pageNum > 1) {
+          pageNum--;
+          queueRenderPage(pageNum);
+        }
+      });
+      document.getElementById('pdfNext').addEventListener('click', function() {
+        if (pdfDoc && pageNum < pdfDoc.numPages) {
+          pageNum++;
+          queueRenderPage(pageNum);
+        }
+      });
+
+      loadPDF();
+    })();
+  </script>
   <?php endif; ?>
 </body>
 </html>
