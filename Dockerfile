@@ -30,6 +30,9 @@ COPY src /var/www/html/
 # 设置权限（可选）
 RUN chown -R root:root /var/www/html
 
+# --- 创建 PHP-FPM socket 目录 ---
+RUN mkdir -p /path/to/unix
+
 
 # Let supervisord start nginx & php-fpm
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
