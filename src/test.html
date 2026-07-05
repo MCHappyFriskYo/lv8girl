@@ -3,16 +3,13 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LunaticChO · 视频播放</title>
+    <title>LunaticChO · 流媒体播放</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <!-- 引入 HLS.js -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@0.14.17/dist/hls.min.js"></script>
     <style>
-        /* ===== 全局重置 ===== */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        /* 样式与之前相同，保留全部自定义控制样式 */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             background: #0b0e14;
@@ -24,8 +21,6 @@
             justify-content: center;
             padding: 20px;
         }
-
-        /* ===== 播放器容器 ===== */
         .player-wrapper {
             max-width: 1000px;
             width: 100%;
@@ -35,8 +30,6 @@
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
             border: 1px solid #2a2f3a;
         }
-
-        /* ===== 视频容器 ===== */
         .video-container {
             position: relative;
             background: #000;
@@ -47,7 +40,6 @@
             justify-content: center;
             overflow: hidden;
         }
-
         .video-container video {
             width: 100%;
             height: 100%;
@@ -55,26 +47,20 @@
             object-fit: contain;
             background: #000;
         }
-
-        /* ===== 自定义控制栏 ===== */
         .custom-controls {
             background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.85) 100%);
             padding: 12px 18px 14px;
             display: flex;
             flex-direction: column;
             gap: 8px;
-            position: relative;
             transition: opacity 0.3s;
         }
-
-        /* 进度条 */
         .progress-container {
             width: 100%;
             display: flex;
             align-items: center;
             gap: 12px;
         }
-
         .progress-bar {
             flex: 1;
             height: 4px;
@@ -84,11 +70,7 @@
             position: relative;
             transition: height 0.2s;
         }
-
-        .progress-bar:hover {
-            height: 6px;
-        }
-
+        .progress-bar:hover { height: 6px; }
         .progress-bar .progress-filled {
             height: 100%;
             background: #d4a373;
@@ -97,7 +79,6 @@
             position: relative;
             transition: width 0.1s linear;
         }
-
         .progress-bar .progress-filled::after {
             content: '';
             position: absolute;
@@ -111,11 +92,7 @@
             transition: opacity 0.2s;
             box-shadow: 0 0 12px rgba(212, 163, 115, 0.5);
         }
-
-        .progress-bar:hover .progress-filled::after {
-            opacity: 1;
-        }
-
+        .progress-bar:hover .progress-filled::after { opacity: 1; }
         .time-display {
             font-size: 0.8rem;
             color: #a0a8b8;
@@ -124,8 +101,6 @@
             text-align: right;
             letter-spacing: 0.3px;
         }
-
-        /* 控制按钮行 */
         .controls-row {
             display: flex;
             align-items: center;
@@ -133,19 +108,16 @@
             flex-wrap: wrap;
             gap: 8px 12px;
         }
-
         .controls-left {
             display: flex;
             align-items: center;
             gap: 6px;
         }
-
         .controls-right {
             display: flex;
             align-items: center;
             gap: 10px;
         }
-
         .controls-row button {
             background: none;
             border: none;
@@ -161,16 +133,11 @@
             width: 36px;
             height: 36px;
         }
-
         .controls-row button:hover {
             color: #ffffff;
             background: rgba(255, 255, 255, 0.08);
         }
-
-        .controls-row button:active {
-            transform: scale(0.92);
-        }
-
+        .controls-row button:active { transform: scale(0.92); }
         .controls-row .play-btn {
             font-size: 1.4rem;
             width: 42px;
@@ -179,19 +146,15 @@
             border-radius: 50%;
             color: #d4a373;
         }
-
         .controls-row .play-btn:hover {
             background: rgba(212, 163, 115, 0.25);
             color: #e8c9a0;
         }
-
-        /* 音量 */
         .volume-wrap {
             display: flex;
             align-items: center;
             gap: 6px;
         }
-
         .volume-wrap input[type="range"] {
             width: 60px;
             height: 3px;
@@ -202,7 +165,6 @@
             outline: none;
             transition: width 0.2s;
         }
-
         .volume-wrap input[type="range"]::-webkit-slider-thumb {
             -webkit-appearance: none;
             appearance: none;
@@ -212,7 +174,6 @@
             background: #d4a373;
             cursor: pointer;
         }
-
         .volume-wrap input[type="range"]::-moz-range-thumb {
             width: 12px;
             height: 12px;
@@ -221,13 +182,7 @@
             cursor: pointer;
             border: none;
         }
-
-        /* 全屏按钮 */
-        .fullscreen-btn {
-            font-size: 1rem;
-        }
-
-        /* 倍速 */
+        .fullscreen-btn { font-size: 1rem; }
         .speed-btn {
             font-size: 0.8rem;
             font-weight: 600;
@@ -235,18 +190,12 @@
             letter-spacing: 0.3px;
             color: #a0a8b8;
         }
-
-        .speed-btn:hover {
-            color: #fff;
-        }
-
-        /* ===== 视频信息 ===== */
+        .speed-btn:hover { color: #fff; }
         .video-info {
             padding: 16px 20px 18px;
             background: #14181f;
             border-top: 1px solid #232833;
         }
-
         .video-info h2 {
             font-size: 1.2rem;
             font-weight: 600;
@@ -256,7 +205,6 @@
             align-items: center;
             gap: 10px;
         }
-
         .video-info .badge {
             font-size: 0.65rem;
             font-weight: 600;
@@ -266,7 +214,6 @@
             border-radius: 20px;
             letter-spacing: 0.5px;
         }
-
         .video-info .meta {
             display: flex;
             flex-wrap: wrap;
@@ -275,81 +222,16 @@
             color: #8892a0;
             margin-top: 4px;
         }
-
         .video-info .meta span {
             display: flex;
             align-items: center;
             gap: 6px;
         }
-
         .video-info .meta i {
             color: #d4a373;
             width: 16px;
             text-align: center;
         }
-
-        /* ===== 响应式 ===== */
-        @media (max-width: 768px) {
-            body {
-                padding: 10px;
-            }
-            .player-wrapper {
-                border-radius: 12px;
-            }
-            .custom-controls {
-                padding: 10px 12px 12px;
-            }
-            .controls-row .play-btn {
-                width: 36px;
-                height: 36px;
-                font-size: 1.2rem;
-            }
-            .controls-row button {
-                width: 30px;
-                height: 30px;
-                font-size: 0.95rem;
-            }
-            .volume-wrap input[type="range"] {
-                width: 40px;
-            }
-            .video-info {
-                padding: 12px 14px 14px;
-            }
-            .video-info h2 {
-                font-size: 1rem;
-            }
-            .time-display {
-                font-size: 0.7rem;
-                min-width: 80px;
-            }
-            .controls-right {
-                gap: 4px;
-            }
-        }
-
-        @media (max-width: 480px) {
-            .controls-row {
-                flex-wrap: wrap;
-                justify-content: center;
-            }
-            .controls-left {
-                flex-wrap: wrap;
-                justify-content: center;
-            }
-            .controls-right {
-                flex-wrap: wrap;
-                justify-content: center;
-            }
-            .volume-wrap input[type="range"] {
-                width: 32px;
-            }
-            .video-info .meta {
-                gap: 8px 16px;
-                font-size: 0.78rem;
-            }
-        }
-
-        /* ===== 加载/错误状态 ===== */
         .video-container .loading-overlay {
             position: absolute;
             inset: 0;
@@ -364,24 +246,13 @@
             opacity: 0;
             transition: opacity 0.4s;
         }
-
-        .video-container .loading-overlay.show {
-            opacity: 1;
-        }
-
+        .video-container .loading-overlay.show { opacity: 1; }
         .video-container .loading-overlay i {
             font-size: 2rem;
             color: #d4a373;
             animation: spin 1s linear infinite;
         }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        /* ===== 键盘提示 ===== */
+        @keyframes spin { to { transform: rotate(360deg); } }
         .keyboard-hint {
             text-align: center;
             padding: 6px 0 2px;
@@ -390,7 +261,6 @@
             letter-spacing: 0.5px;
             border-top: 1px solid #1e232c;
         }
-
         .keyboard-hint kbd {
             background: #1e232c;
             padding: 1px 8px;
@@ -399,38 +269,48 @@
             color: #8892a0;
             border: 1px solid #2a2f3a;
         }
+        @media (max-width: 768px) {
+            body { padding: 10px; }
+            .player-wrapper { border-radius: 12px; }
+            .custom-controls { padding: 10px 12px 12px; }
+            .controls-row .play-btn { width: 36px; height: 36px; font-size: 1.2rem; }
+            .controls-row button { width: 30px; height: 30px; font-size: 0.95rem; }
+            .volume-wrap input[type="range"] { width: 40px; }
+            .video-info { padding: 12px 14px 14px; }
+            .video-info h2 { font-size: 1rem; }
+            .time-display { font-size: 0.7rem; min-width: 80px; }
+            .controls-right { gap: 4px; }
+        }
+        @media (max-width: 480px) {
+            .controls-row { flex-wrap: wrap; justify-content: center; }
+            .controls-left, .controls-right { flex-wrap: wrap; justify-content: center; }
+            .volume-wrap input[type="range"] { width: 32px; }
+            .video-info .meta { gap: 8px 16px; font-size: 0.78rem; }
+        }
     </style>
 </head>
 <body>
 
     <div class="player-wrapper">
 
-        <!-- ===== 视频播放器 ===== -->
+        <!-- 视频容器 -->
         <div class="video-container" id="videoContainer">
-            <video id="videoPlayer" preload="metadata" playsinline>
-                <source src="https://123-184-221-183-v2.pd1.cjjd19.com/1135-user-other-free-download-cdn.123295.com/123-342/797287b7/1836442599-0/797287b79a1242e62a350ed4b3b68556/c-m42?v=5&t=1783854143&r=RHZ7L1&bzc=1&bzs=313833363434323539393a323a313a323534343533373936&ur=vvbgmagviigann&urn=0&s=17838541434b02796486b91d939ee34b6cc687e561&bzp=0&bi=2555784986&filename=3-8K120FPS-4K+超高清-AVC.mp4&x-mf-biz-cid=27a04840-5076-4eb2-a221-681eae65279b-08139d&auto_redirect=0&ndcp=1&cache_type=1" type="video/mp4">
-                您的浏览器不支持视频播放。
-            </video>
+            <video id="videoPlayer" preload="metadata" playsinline></video>
             <div class="loading-overlay" id="loadingOverlay">
                 <i class="fas fa-spinner"></i>
                 <span>加载中...</span>
             </div>
         </div>
 
-        <!-- ===== 自定义控制栏 ===== -->
+        <!-- 自定义控制栏 -->
         <div class="custom-controls" id="controls">
-
-            <!-- 进度条 -->
             <div class="progress-container">
                 <div class="progress-bar" id="progressBar">
                     <div class="progress-filled" id="progressFilled"></div>
                 </div>
                 <span class="time-display" id="timeDisplay">00:00 / 00:00</span>
             </div>
-
-            <!-- 控制按钮 -->
             <div class="controls-row">
-
                 <div class="controls-left">
                     <button class="play-btn" id="playBtn" aria-label="播放/暂停">
                         <i class="fas fa-play"></i>
@@ -442,31 +322,29 @@
                         <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.8" />
                     </div>
                 </div>
-
                 <div class="controls-right">
                     <button class="speed-btn" id="speedBtn" aria-label="播放速度">1×</button>
                     <button class="fullscreen-btn" id="fullscreenBtn" aria-label="全屏">
                         <i class="fas fa-expand"></i>
                     </button>
                 </div>
-
             </div>
-
-            <!-- 键盘快捷键提示 -->
             <div class="keyboard-hint">
                 <kbd>Space</kbd> 播放/暂停 &nbsp;·&nbsp; <kbd>←</kbd> <kbd>→</kbd> 快退/快进 5s &nbsp;·&nbsp; <kbd>↑</kbd> <kbd>↓</kbd> 音量
             </div>
         </div>
 
-        <!-- ===== 视频信息 ===== -->
+        <!-- 视频信息 -->
         <div class="video-info">
             <h2>
-                <span>4K超高清 · 120FPS Bad Apple网络带宽测试</span>
-                <span class="badge">HDR</span>
+                <span>🌿 4K 超高清 · 120FPS 演示</span>
+                <span class="badge">HLS</span>
             </h2>
             <div class="meta">
+                <span><i class="fas fa-video"></i> 分辨率 3840×2160</span>
                 <span><i class="fas fa-tachometer-alt"></i> 120 FPS</span>
-                <span><i class="fas fa-database"></i> 约 260 MB</span>
+                <span><i class="fas fa-file-video"></i> HLS / MP4</span>
+                <span><i class="fas fa-database"></i> 自适应码率</span>
             </div>
         </div>
 
@@ -475,6 +353,13 @@
     <script>
         (function() {
             'use strict';
+
+            // ===== 视频源配置 =====
+            // 默认使用 MP4，可替换为 m3u8 链接
+            const VIDEO_SRC = 'https://123-184-221-183-v2.pd1.cjjd19.com/1135-user-other-free-download-cdn.123295.com/123-342/797287b7/1836442599-0/797287b79a1242e62a350ed4b3b68556/c-m42?v=5&t=1783854143&r=RHZ7L1&bzc=1&bzs=313833363434323539393a323a313a323534343533373936&ur=vvbgmagviigann&urn=0&s=17838541434b02796486b91d939ee34b6cc687e561&bzp=0&bi=2555784986&filename=3-8K120FPS-4K+超高清-AVC.mp4&x-mf-biz-cid=27a04840-5076-4eb2-a221-681eae65279b-08139d&auto_redirect=0&ndcp=1&cache_type=1';
+
+            // 如果想测试 HLS，可以取消注释下面一行（用公开的 HLS 示例）
+            // const VIDEO_SRC = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
 
             // ===== DOM 引用 =====
             const video = document.getElementById('videoPlayer');
@@ -493,9 +378,50 @@
             let isDragging = false;
             let wasPausedBeforeDrag = false;
             const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
-            let speedIndex = 2; // 默认 1×
+            let speedIndex = 2; // 1×
 
-            // ===== 格式化时间 =====
+            // ===== 初始化 HLS 或普通视频 =====
+            function initPlayer() {
+                const src = VIDEO_SRC;
+                if (src && src.includes('.m3u8')) {
+                    // ---- HLS 流媒体 ----
+                    if (Hls.isSupported()) {
+                        const hls = new Hls({
+                            enableWorker: true,
+                            lowLatencyMode: true,
+                        });
+                        hls.loadSource(src);
+                        hls.attachMedia(video);
+                        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                            video.play().catch(() => {});
+                        });
+                        hls.on(Hls.Events.ERROR, (event, data) => {
+                            if (data.fatal) {
+                                console.error('HLS 致命错误:', data);
+                            }
+                        });
+                        // 存储 hls 实例以便销毁
+                        window._hls = hls;
+                    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                        // 原生 HLS 支持（Safari）
+                        video.src = src;
+                        video.addEventListener('loadedmetadata', () => {
+                            video.play().catch(() => {});
+                        });
+                    } else {
+                        alert('您的浏览器不支持 HLS 流媒体播放，请使用最新版 Chrome / Edge / Safari。');
+                    }
+                } else {
+                    // ---- 普通 MP4 ----
+                    video.src = src;
+                    video.addEventListener('loadedmetadata', () => {
+                        // 可以自动播放
+                        // video.play().catch(() => {});
+                    });
+                }
+            }
+
+            // ===== 辅助函数 =====
             function formatTime(seconds) {
                 if (!seconds || isNaN(seconds)) return '00:00';
                 const s = Math.floor(seconds);
@@ -504,7 +430,6 @@
                 return String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
             }
 
-            // ===== 更新进度条 =====
             function updateProgress() {
                 if (!isDragging && video.duration) {
                     const percent = (video.currentTime / video.duration) * 100;
@@ -513,7 +438,6 @@
                 }
             }
 
-            // ===== 播放/暂停切换 =====
             function togglePlay() {
                 if (video.paused) {
                     video.play().catch(() => {});
@@ -531,7 +455,6 @@
                 }
             }
 
-            // ===== 音量 =====
             function updateVolumeIcon() {
                 const icon = muteBtn.querySelector('i');
                 if (video.muted || video.volume === 0) {
@@ -543,7 +466,6 @@
                 }
             }
 
-            // ===== 倍速 =====
             function cycleSpeed() {
                 speedIndex = (speedIndex + 1) % speeds.length;
                 const speed = speeds[speedIndex];
@@ -551,7 +473,6 @@
                 speedBtn.textContent = speed + '×';
             }
 
-            // ===== 全屏 =====
             function toggleFullscreen() {
                 if (!document.fullscreenElement) {
                     container.requestFullscreen?.() || container.webkitRequestFullscreen?.();
@@ -560,30 +481,24 @@
                 }
             }
 
-            // ===== 加载状态 =====
             function setLoading(show) {
                 loadingOverlay.classList.toggle('show', show);
             }
 
             // ===== 事件绑定 =====
 
-            // ---- 视频事件 ----
+            // 视频事件
             video.addEventListener('loadedmetadata', () => {
                 timeDisplay.textContent = '00:00 / ' + formatTime(video.duration);
                 setLoading(false);
             });
-
             video.addEventListener('waiting', () => setLoading(true));
             video.addEventListener('canplay', () => setLoading(false));
             video.addEventListener('playing', () => setLoading(false));
-
             video.addEventListener('timeupdate', updateProgress);
-
             video.addEventListener('play', updatePlayButton);
             video.addEventListener('pause', updatePlayButton);
-
             video.addEventListener('volumechange', updateVolumeIcon);
-
             video.addEventListener('ended', () => {
                 video.currentTime = 0;
                 video.pause();
@@ -591,20 +506,17 @@
                 updateProgress();
             });
 
-            // ---- 播放按钮 ----
+            // 播放按钮
             playBtn.addEventListener('click', togglePlay);
 
-            // ---- 键盘快捷键 ----
+            // 键盘快捷键
             document.addEventListener('keydown', (e) => {
-                // 忽略输入框内的按键
                 if (e.target.tagName === 'INPUT') return;
-
                 if (e.key === ' ' || e.key === 'Space') {
                     e.preventDefault();
                     togglePlay();
                     return;
                 }
-
                 if (e.key === 'ArrowRight') {
                     e.preventDefault();
                     video.currentTime = Math.min(video.currentTime + 5, video.duration || 0);
@@ -636,23 +548,19 @@
                 }
             });
 
-            // ---- 点击视频切换播放 ----
+            // 点击视频切换播放
             video.addEventListener('click', togglePlay);
 
-            // ---- 进度条拖拽 ----
+            // 进度条拖拽
             progressBar.addEventListener('mousedown', (e) => {
                 isDragging = true;
                 wasPausedBeforeDrag = video.paused;
                 if (!video.paused) video.pause();
                 updateProgressFromMouse(e);
             });
-
             document.addEventListener('mousemove', (e) => {
-                if (isDragging) {
-                    updateProgressFromMouse(e);
-                }
+                if (isDragging) updateProgressFromMouse(e);
             });
-
             document.addEventListener('mouseup', () => {
                 if (isDragging) {
                     isDragging = false;
@@ -673,14 +581,14 @@
                 }
             }
 
-            // ---- 静音 ----
+            // 静音
             muteBtn.addEventListener('click', () => {
                 video.muted = !video.muted;
                 volumeSlider.value = video.muted ? 0 : (video.volume || 0.8);
                 updateVolumeIcon();
             });
 
-            // ---- 音量滑块 ----
+            // 音量滑块
             volumeSlider.addEventListener('input', () => {
                 const val = parseFloat(volumeSlider.value);
                 video.volume = val;
@@ -688,13 +596,11 @@
                 updateVolumeIcon();
             });
 
-            // ---- 倍速 ----
+            // 倍速
             speedBtn.addEventListener('click', cycleSpeed);
 
-            // ---- 全屏 ----
+            // 全屏
             fullscreenBtn.addEventListener('click', toggleFullscreen);
-
-            // 全屏变化时更新图标
             document.addEventListener('fullscreenchange', () => {
                 const icon = fullscreenBtn.querySelector('i');
                 if (document.fullscreenElement) {
@@ -704,22 +610,26 @@
                 }
             });
 
-            // ---- 初始化 ----
+            // 双击全屏
+            video.addEventListener('dblclick', toggleFullscreen);
+
+            // ===== 启动播放器 =====
+            // 先设置初始音量
             video.volume = 0.8;
             volumeSlider.value = 0.8;
             updateVolumeIcon();
             updatePlayButton();
             setLoading(true);
 
+            // 初始化视频源（HLS 或 MP4）
+            initPlayer();
+
             // 如果视频已加载，隐藏加载提示
             if (video.readyState >= 2) {
                 setLoading(false);
             }
 
-            // ---- 双击全屏 ----
-            video.addEventListener('dblclick', toggleFullscreen);
-
-            console.log('🎬 视频播放器已启动 | LunaticChO');
+            console.log('🎬 流媒体播放器已启动 (支持 HLS)');
         })();
     </script>
 
