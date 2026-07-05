@@ -13,6 +13,11 @@ RUN apt-get update && \
 # 复制 nginx 配置
 COPY nginx.conf /etc/nginx/nginx.conf
 
+# 复制php配置
+COPY www.conf /usr/local/etc/php-fpm.d/zz-docker.conf
+
+COPY php.ini /usr/local/etc/php/php.ini
+
 # 复制 Supervisor 配置
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
@@ -23,7 +28,7 @@ RUN rm -rf /var/www/html/*
 COPY src /var/www/html/
 
 # 设置权限（可选）
-RUN chown -R www-data:www-data /var/www/html
+RUN chown -R root:root /var/www/html
 
 
 # Let supervisord start nginx & php-fpm
