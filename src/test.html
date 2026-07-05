@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LunaticChO · 流媒体播放</title>
+    <title>LunaticChO · 视频播放</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
     <!-- 引入 HLS.js -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@0.14.17/dist/hls.min.js"></script>
@@ -337,14 +337,11 @@
         <!-- 视频信息 -->
         <div class="video-info">
             <h2>
-                <span>🌿 4K 超高清 · 120FPS 演示</span>
+                <span>4K 超高清 · 120FPS Bad Apple 带宽测试</span>
                 <span class="badge">HLS</span>
             </h2>
             <div class="meta">
-                <span><i class="fas fa-video"></i> 分辨率 3840×2160</span>
                 <span><i class="fas fa-tachometer-alt"></i> 120 FPS</span>
-                <span><i class="fas fa-file-video"></i> HLS / MP4</span>
-                <span><i class="fas fa-database"></i> 自适应码率</span>
             </div>
         </div>
 
@@ -356,7 +353,7 @@
 
             // ===== 视频源配置 =====
             // 默认使用 MP4，可替换为 m3u8 链接
-            const VIDEO_SRC = 'https://123-184-221-183-v2.pd1.cjjd19.com/1135-user-other-free-download-cdn.123295.com/123-342/797287b7/1836442599-0/797287b79a1242e62a350ed4b3b68556/c-m42?v=5&t=1783854143&r=RHZ7L1&bzc=1&bzs=313833363434323539393a323a313a323534343533373936&ur=vvbgmagviigann&urn=0&s=17838541434b02796486b91d939ee34b6cc687e561&bzp=0&bi=2555784986&filename=3-8K120FPS-4K+超高清-AVC.mp4&x-mf-biz-cid=27a04840-5076-4eb2-a221-681eae65279b-08139d&auto_redirect=0&ndcp=1&cache_type=1';
+            const VIDEO_SRC = 'https://storage.googleapis.com/store-screenapp-production/vid/6a4a45ee9de58f8696a265ef/d8b582b6-8829-4239-a6bc-a221f5f7b01c.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=GOOG1EINEQV5X2QGY62PSZMBMUR7IGGVLKNDB6ABP5GL6O6FKO76DWA2IE3SB/20260705/auto/s3/aws4_request&X-Amz-Date=20260705T115442Z&X-Amz-Expires=604800&X-Amz-Signature=4ec43fcacda4a92bd3fa751e0bfc0c5a9ac7866170bd642b934e551cede752b6&X-Amz-SignedHeaders=host&response-content-disposition=attachment; filename="d8b582b6-8829-4239-a6bc-a221f5f7b01c.mp4"; filename*= UTF-8''3_8K120FPS_4K%20_AVC.mp4;&response-content-type=video/mp4&x-amz-checksum-mode=ENABLED&x-id=GetObject#t=0,';
 
             // 如果想测试 HLS，可以取消注释下面一行（用公开的 HLS 示例）
             // const VIDEO_SRC = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
