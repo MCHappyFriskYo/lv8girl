@@ -24,6 +24,7 @@
           return;
         }
 
+        // 获取当前用户角色
         let currentUser = null;
         try {
           const userRes = await fetch('?action=get_user');
@@ -31,18 +32,37 @@
           if (userData.code === 0) currentUser = userData.data;
         } catch (e) {}
 
+        const isAdmin = currentUser && ['ADMIN', 'TEACHER'].includes(currentUser.role);
+
         let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1.2rem;margin-top:1rem;">';
         for (const exam of exams) {
-          let signupStatus = null;
-          if (currentUser) {
-            try {
-              const sr = await fetch(`?action=get_signup_status&exam_id=${exam.id}`);
-              const sd = await sr.json();
-              if (sd.code === 0) signupStatus = sd.data;
-            } catch (e) {}
+          const now = new Date();
+          const start = exam.start_time ? new Date(exam.start_time) : null;
+          const end = exam.end_time ? new Date(exam.end_time) : null;
+          let statusText = '';
+          let canEnter = false;
+          let link = '';
+
+          if (isAdmin) {
+            // 管理员可随时进入（但需要报名状态？暂时不强制报名，可加报名检查）
+            canEnter = true;
+            statusText = '👨‍🏫 管理员入口';
+            link = `exam_take.php?exam_id=${exam.id}&admin=1`;
+          } else {
+            if (start && now < start) {
+              statusText = '⏳ 尚未开始 (' + start.toLocaleString() + ')';
+              canEnter = false;
+            } else if (end && now > end) {
+              statusText = '🔒 已结束';
+              canEnter = false;
+            } else {
+              // 在答题时间内，检查是否已报名且审核通过？这里简化：只要有报名记录且状态为approved，或者不限制报名
+              // 暂时先放行，报名逻辑后续可加
+              canEnter = true;
+              statusText = '📝 答题中';
+              link = `exam_take.php?exam_id=${exam.id}`;
+            }
           }
-          const hasSigned = signupStatus && signupStatus.has_signed;
-          const statusText = hasSigned ? (signupStatus.status === 'approved' ? '✅ 已通过' : (signupStatus.status === 'rejected' ? '❌ 已拒绝' : '⏳ 审核中')) : '';
 
           html += `
             <div style="background:#f8fafc;border-radius:10px;padding:1.2rem 1.5rem;border-left:4px solid #d4a373;">
@@ -51,17 +71,12 @@
                 <span>👩‍🏫 ${exam.teacher}</span>
                 <span style="margin-left:1rem;">📅 ${new Date(exam.published_at).toLocaleDateString()}</span>
               </div>
-              <div style="margin-top:0.8rem;font-size:0.9rem;color:#1e293b;">
-                ${exam.question_count} 题 · 总分 ${exam.total_score}
+              <div style="margin-top:0.5rem;font-size:0.85rem;color:#64748b;">
+                ${exam.start_time ? '开始：' + new Date(exam.start_time).toLocaleString() : ''}
+                ${exam.end_time ? ' 结束：' + new Date(exam.end_time).toLocaleString() : ''}
               </div>
               <div style="margin-top:0.8rem;">
-                ${!currentUser ? 
-                  `<span style="color:#94a3b8;font-size:0.9rem;">请 <a href="?page=account" style="color:#2563eb;text-decoration:underline;">登录</a> 后报名</span>` :
-                  (hasSigned ? 
-                    `<span style="color:#0b6b4c;font-weight:500;">${statusText}</span>` :
-                    `<a href="exam_signup.php?exam_id=${exam.id}" class="btn" style="display:inline-block;background:#0b3b4c;color:#fff;padding:0.3rem 1.2rem;border-radius:20px;text-decoration:none;font-size:0.9rem;transition:background 0.15s;">立即报名</a>`
-                  )
-                }
+                ${canEnter ? `<a href="${link}" class="btn" style="display:inline-block;background:#0b3b4c;color:#fff;padding:0.3rem 1.2rem;border-radius:20px;text-decoration:none;font-size:0.9rem;transition:background 0.15s;">进入考试</a>` : `<span style="color:#94a3b8;font-size:0.9rem;">${statusText}</span>`}
               </div>
             </div>
           `;
