@@ -1,8 +1,7 @@
 <?php
 /**
- * LunaticChO 主入口 - 完整版（含联考报名 API）
+ * LunaticChO 主入口 - 完整版（含联考报名、答题卡上传等全部功能）
  */
-
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
@@ -13,7 +12,7 @@ function gsk_config() {
     $host = 'lv8girl-db';
     $dbname = 'lv8girl';
     $db_user = 'lv8girl';
-    $db_pass = 'yourpasswd'; // 请修改
+    $db_pass = 'yourpasswd'; // 请修改为实际密码
     try {
         $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $db_user, $db_pass);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -94,7 +93,6 @@ if (isset($_REQUEST['action'])) {
             $email = trim($input['email'] ?? '');
             $password = trim($input['password'] ?? '');
             $qq = trim($input['qq'] ?? '');
-
             if (!$username || !$email || !$password) {
                 http_response_code(400);
                 echo json_encode(['code' => 40001, 'message' => '用户名、邮箱和密码为必填项']);
@@ -122,7 +120,6 @@ if (isset($_REQUEST['action'])) {
                 echo json_encode(['code' => 40001, 'message' => '密码至少6位']);
                 exit;
             }
-
             $stmt = $pdo->prepare("SELECT id FROM gsk_users WHERE email = ?");
             $stmt->execute([$email]);
             if ($stmt->fetch()) {
@@ -130,12 +127,9 @@ if (isset($_REQUEST['action'])) {
                 echo json_encode(['code' => 40900, 'message' => '该邮箱已注册']);
                 exit;
             }
-
             $hashed = password_hash($password, PASSWORD_DEFAULT);
-
             $check = $pdo->query("SHOW COLUMNS FROM gsk_users LIKE 'real_name'");
             $hasRealName = $check->rowCount() > 0;
-
             if ($hasRealName) {
                 $stmt = $pdo->prepare("INSERT INTO gsk_users (username, email, password, qq, role, tenant_id, status, real_name) VALUES (?, ?, ?, ?, 'MARKER', 'school_a', 'ACTIVE', '')");
                 $stmt->execute([$username, $email, $hashed, $qq]);
@@ -143,9 +137,7 @@ if (isset($_REQUEST['action'])) {
                 $stmt = $pdo->prepare("INSERT INTO gsk_users (username, email, password, qq, role, tenant_id, status) VALUES (?, ?, ?, ?, 'MARKER', 'school_a', 'ACTIVE')");
                 $stmt->execute([$username, $email, $hashed, $qq]);
             }
-
             $userId = $pdo->lastInsertId();
-
             echo json_encode([
                 'code' => 0,
                 'message' => '注册成功，请登录',
@@ -211,36 +203,216 @@ if (isset($_REQUEST['action'])) {
             exit;
         }
 
-        // ---------- 获取已发布的考试列表 ----------
+        // ---------- 获取考试列表（支持类型过滤） ----------
         if ($action === 'get_exams') {
-    $type = $_GET['type'] ?? null; // 可选参数 weekly / exam
-    try {
-        $stmt = $pdo->query("SHOW TABLES LIKE 'gsk_exams'");
-        if ($stmt->rowCount() == 0) {
-            echo json_encode(['code' => 404, 'message' => '表 gsk_exams 不存在']);
+            $type = $_GET['type'] ?? null;
+            try {
+                $stmt = $pdo->query("SHOW TABLES LIKE 'gsk_exams'");
+                if ($stmt->rowCount() == 0) {
+                    echo json_encode(['code' => 404, 'message' => '表 gsk_exams 不存在']);
+                    exit;
+                }
+                $sql = "SELECT * FROM gsk_exams WHERE status = 'published'";
+                if ($type && in_array($type, ['weekly', 'exam'])) {
+                    $sql .= " AND type = '" . $type . "'";
+                }
+                $sql .= " ORDER BY published_at DESC";
+                $stmt = $pdo->query($sql);
+                $exams = $stmt->fetchAll();
+                foreach ($exams as &$exam) {
+                    $stmt2 = $pdo->prepare("SELECT COUNT(*) as qcount FROM gsk_questions WHERE exam_id = ?");
+                    $stmt2->execute([$exam['id']]);
+                    $exam['question_count'] = $stmt2->fetch()['qcount'] ?? 0;
+                    $stmt2 = $pdo->prepare("SELECT SUM(score) as total FROM gsk_questions WHERE exam_id = ?");
+                    $stmt2->execute([$exam['id']]);
+                    $exam['total_score'] = $stmt2->fetch()['total'] ?? 0;
+                }
+                echo json_encode(['code' => 0, 'data' => $exams]);
+            } catch (Exception $e) {
+                echo json_encode(['code' => 500, 'message' => '异常：' . $e->getMessage()]);
+            }
             exit;
         }
-        $sql = "SELECT * FROM gsk_exams WHERE status = 'published'";
-        if ($type && in_array($type, ['weekly', 'exam'])) {
-            $sql .= " AND type = '" . $type . "'";
+
+        // ---------- 获取报名状态 ----------
+        if ($action === 'get_signup_status') {
+            if (!isset($_SESSION['user_id'])) {
+                echo json_encode(['code' => 40100, 'message' => '未登录']);
+                exit;
+            }
+            $exam_id = intval($_GET['exam_id'] ?? 0);
+            if (!$exam_id) {
+                echo json_encode(['code' => 40001, 'message' => '缺少考试ID']);
+                exit;
+            }
+            $user_id = $_SESSION['user_id'];
+            $stmt = $pdo->prepare("SELECT status FROM gsk_exam_signups WHERE exam_id = ? AND user_id = ?");
+            $stmt->execute([$exam_id, $user_id]);
+            $row = $stmt->fetch();
+            echo json_encode([
+                'code' => 0,
+                'data' => [
+                    'has_signed' => $row ? true : false,
+                    'status' => $row ? $row['status'] : null
+                ]
+            ]);
+            exit;
         }
-        $sql .= " ORDER BY published_at DESC";
-        $stmt = $pdo->query($sql);
-        $exams = $stmt->fetchAll();
-        foreach ($exams as &$exam) {
-            $stmt2 = $pdo->prepare("SELECT COUNT(*) as qcount FROM gsk_questions WHERE exam_id = ?");
-            $stmt2->execute([$exam['id']]);
-            $exam['question_count'] = $stmt2->fetch()['qcount'] ?? 0;
-            $stmt2 = $pdo->prepare("SELECT SUM(score) as total FROM gsk_questions WHERE exam_id = ?");
-            $stmt2->execute([$exam['id']]);
-            $exam['total_score'] = $stmt2->fetch()['total'] ?? 0;
+
+        // ---------- 提交报名 ----------
+        if ($action === 'submit_signup') {
+            if (!isset($_SESSION['user_id'])) {
+                echo json_encode(['code' => 40100, 'message' => '请先登录']);
+                exit;
+            }
+            $input = json_decode(file_get_contents('php://input'), true);
+            if (!$input) {
+                $input = $_POST;
+            }
+            $exam_id = intval($input['exam_id'] ?? 0);
+            $student_name = trim($input['student_name'] ?? '');
+            $student_id = trim($input['student_id'] ?? '');
+            // 班级和手机号保留，但前端可能不传，设为空
+            $class = trim($input['class'] ?? '');
+            $phone = trim($input['phone'] ?? '');
+            $email = trim($input['email'] ?? '');
+
+            if (!$exam_id || !$student_name || !$student_id) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '请填写完整信息（姓名、学号必填）']);
+                exit;
+            }
+
+            $user_id = $_SESSION['user_id'];
+
+            // 检查是否已报名
+            $stmt = $pdo->prepare("SELECT id FROM gsk_exam_signups WHERE exam_id = ? AND user_id = ?");
+            $stmt->execute([$exam_id, $user_id]);
+            if ($stmt->fetch()) {
+                http_response_code(409);
+                echo json_encode(['code' => 40900, 'message' => '您已报名此考试，不可重复报名']);
+                exit;
+            }
+
+            // 插入报名记录
+            $stmt = $pdo->prepare("INSERT INTO gsk_exam_signups (exam_id, user_id, student_name, student_id, class, phone, email, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')");
+            $stmt->execute([$exam_id, $user_id, $student_name, $student_id, $class, $phone, $email]);
+            echo json_encode(['code' => 0, 'message' => '报名成功，请等待审核']);
+            exit;
         }
-        echo json_encode(['code' => 0, 'data' => $exams]);
-    } catch (Exception $e) {
-        echo json_encode(['code' => 500, 'message' => '异常：' . $e->getMessage()]);
-    }
-    exit;
-}
+
+        // ---------- 后台获取报名列表 ----------
+        if ($action === 'admin_get_signups') {
+            if (!isset($_SESSION['user_id'])) {
+                echo json_encode(['code' => 40100, 'message' => '未登录']);
+                exit;
+            }
+            $user_id = $_SESSION['user_id'];
+            $stmt = $pdo->prepare("SELECT role FROM gsk_users WHERE id = ?");
+            $stmt->execute([$user_id]);
+            $user = $stmt->fetch();
+            if (!in_array($user['role'], ['ADMIN', 'TEACHER'])) {
+                http_response_code(403);
+                echo json_encode(['code' => 40300, 'message' => '无权限']);
+                exit;
+            }
+            $stmt = $pdo->query("
+                SELECT s.*, e.title as exam_title, u.username 
+                FROM gsk_exam_signups s
+                JOIN gsk_exams e ON s.exam_id = e.id
+                JOIN gsk_users u ON s.user_id = u.id
+                ORDER BY s.signup_time DESC
+            ");
+            $signups = $stmt->fetchAll();
+            echo json_encode(['code' => 0, 'data' => $signups]);
+            exit;
+        }
+
+        // ---------- 管理员审核报名 ----------
+        if ($action === 'admin_review_signup') {
+            if (!isset($_SESSION['user_id'])) {
+                echo json_encode(['code' => 40100, 'message' => '未登录']);
+                exit;
+            }
+            $user_id = $_SESSION['user_id'];
+            $stmt = $pdo->prepare("SELECT role FROM gsk_users WHERE id = ?");
+            $stmt->execute([$user_id]);
+            $user = $stmt->fetch();
+            if (!in_array($user['role'], ['ADMIN', 'TEACHER'])) {
+                http_response_code(403);
+                echo json_encode(['code' => 40300, 'message' => '无权限']);
+                exit;
+            }
+            $input = json_decode(file_get_contents('php://input'), true);
+            $signup_id = intval($input['signup_id'] ?? 0);
+            $status = $input['status'] ?? '';
+            if (!in_array($status, ['approved', 'rejected'])) {
+                http_response_code(400);
+                echo json_encode(['code' => 40001, 'message' => '无效状态']);
+                exit;
+            }
+            $stmt = $pdo->prepare("UPDATE gsk_exam_signups SET status = ? WHERE id = ?");
+            $stmt->execute([$status, $signup_id]);
+            echo json_encode(['code' => 0, 'message' => '审核完成']);
+            exit;
+        }
+
+        // ---------- 上传联考答题卡 ----------
+        if ($action === 'upload_exam_answer') {
+            if (!isset($_SESSION['user_id'])) {
+                echo json_encode(['code' => 40100, 'message' => '请先登录']);
+                exit;
+            }
+            $exam_id = intval($_POST['exam_id'] ?? 0);
+            if (!$exam_id) {
+                echo json_encode(['code' => 40001, 'message' => '缺少考试ID']);
+                exit;
+            }
+            $user_id = $_SESSION['user_id'];
+
+            // 检查报名状态
+            $stmt = $pdo->prepare("SELECT status FROM gsk_exam_signups WHERE exam_id = ? AND user_id = ?");
+            $stmt->execute([$exam_id, $user_id]);
+            $signup = $stmt->fetch();
+            if (!$signup || $signup['status'] !== 'approved') {
+                echo json_encode(['code' => 40300, 'message' => '您未通过报名审核']);
+                exit;
+            }
+
+            // 检查文件
+            if (!isset($_FILES['answer_file']) || $_FILES['answer_file']['error'] !== UPLOAD_ERR_OK) {
+                echo json_encode(['code' => 40001, 'message' => '文件上传失败']);
+                exit;
+            }
+            $file = $_FILES['answer_file'];
+            $allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
+            if (!in_array($file['type'], $allowed)) {
+                echo json_encode(['code' => 40001, 'message' => '仅支持 jpg/png/gif/webp/pdf 格式']);
+                exit;
+            }
+            if ($file['size'] > 5 * 1024 * 1024) {
+                echo json_encode(['code' => 40001, 'message' => '文件不能超过 5MB']);
+                exit;
+            }
+
+            // 保存文件
+            $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
+            $filename = uniqid() . '.' . $ext;
+            $upload_dir = 'uploads/exam_answers/';
+            if (!is_dir($upload_dir)) {
+                mkdir($upload_dir, 0755, true);
+            }
+            $path = $upload_dir . $filename;
+            if (move_uploaded_file($file['tmp_name'], $path)) {
+                // 记录到数据库
+                $stmt = $pdo->prepare("INSERT INTO gsk_exam_submissions (exam_id, user_id, file_name, file_path) VALUES (?, ?, ?, ?)");
+                $stmt->execute([$exam_id, $user_id, $file['name'], $path]);
+                echo json_encode(['code' => 0, 'message' => '上传成功']);
+            } else {
+                echo json_encode(['code' => 50000, 'message' => '文件保存失败']);
+            }
+            exit;
+        }
 
         // ---------- 获取用户在各考试中的答题状态 ----------
         if ($action === 'get_user_exam_status') {
@@ -249,7 +421,8 @@ if (isset($_REQUEST['action'])) {
                 exit;
             }
             $user_id = $_SESSION['user_id'];
-            $stmt = $pdo->query("SELECT * FROM gsk_exams WHERE status = 'published' ORDER BY published_at DESC");
+            // 只获取周常类型（联考答题状态另算，但这里暂且包含所有）
+            $stmt = $pdo->query("SELECT * FROM gsk_exams WHERE status = 'published' AND type = 'weekly' ORDER BY published_at DESC");
             $exams = $stmt->fetchAll();
             $result = [];
             foreach ($exams as $exam) {
@@ -373,125 +546,6 @@ if (isset($_REQUEST['action'])) {
             exit;
         }
 
-        // ---------- 获取考试报名状态 ----------
-        if ($action === 'get_signup_status') {
-            if (!isset($_SESSION['user_id'])) {
-                echo json_encode(['code' => 40100, 'message' => '未登录']);
-                exit;
-            }
-            $exam_id = intval($_GET['exam_id'] ?? 0);
-            if (!$exam_id) {
-                echo json_encode(['code' => 40001, 'message' => '缺少考试ID']);
-                exit;
-            }
-            $user_id = $_SESSION['user_id'];
-            $stmt = $pdo->prepare("SELECT status FROM gsk_exam_signups WHERE exam_id = ? AND user_id = ?");
-            $stmt->execute([$exam_id, $user_id]);
-            $row = $stmt->fetch();
-            echo json_encode([
-                'code' => 0,
-                'data' => [
-                    'has_signed' => $row ? true : false,
-                    'status' => $row ? $row['status'] : null
-                ]
-            ]);
-            exit;
-        }
-
-        // ---------- 提交报名 ----------
-        if ($action === 'submit_signup') {
-            if (!isset($_SESSION['user_id'])) {
-                echo json_encode(['code' => 40100, 'message' => '请先登录']);
-                exit;
-            }
-            $input = json_decode(file_get_contents('php://input'), true);
-            $exam_id = intval($input['exam_id'] ?? 0);
-            $student_name = trim($input['student_name'] ?? '');
-            $student_id = trim($input['student_id'] ?? '');
-            $class = trim($input['class'] ?? '');
-            $phone = trim($input['phone'] ?? '');
-            $email = trim($input['email'] ?? '');
-
-            if (!$exam_id || !$student_name || !$student_id || !$class || !$phone) {
-                http_response_code(400);
-                echo json_encode(['code' => 40001, 'message' => '请填写完整信息']);
-                exit;
-            }
-
-            $user_id = $_SESSION['user_id'];
-
-            $stmt = $pdo->prepare("SELECT id FROM gsk_exam_signups WHERE exam_id = ? AND user_id = ?");
-            $stmt->execute([$exam_id, $user_id]);
-            if ($stmt->fetch()) {
-                http_response_code(409);
-                echo json_encode(['code' => 40900, 'message' => '您已报名此考试，不可重复报名']);
-                exit;
-            }
-
-            $stmt = $pdo->prepare("INSERT INTO gsk_exam_signups (exam_id, user_id, student_name, student_id, class, phone, email, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')");
-            $stmt->execute([$exam_id, $user_id, $student_name, $student_id, $class, $phone, $email]);
-            echo json_encode(['code' => 0, 'message' => '报名成功，请等待审核']);
-            exit;
-        }
-
-        // ---------- 后台获取报名列表 ----------
-        if ($action === 'admin_get_signups') {
-            if (!isset($_SESSION['user_id'])) {
-                echo json_encode(['code' => 40100, 'message' => '未登录']);
-                exit;
-            }
-            $user_id = $_SESSION['user_id'];
-            $stmt = $pdo->prepare("SELECT role FROM gsk_users WHERE id = ?");
-            $stmt->execute([$user_id]);
-            $user = $stmt->fetch();
-            if (!in_array($user['role'], ['ADMIN', 'TEACHER'])) {
-                http_response_code(403);
-                echo json_encode(['code' => 40300, 'message' => '无权限']);
-                exit;
-            }
-
-            $stmt = $pdo->query("
-                SELECT s.*, e.title as exam_title, u.username 
-                FROM gsk_exam_signups s
-                JOIN gsk_exams e ON s.exam_id = e.id
-                JOIN gsk_users u ON s.user_id = u.id
-                ORDER BY s.signup_time DESC
-            ");
-            $signups = $stmt->fetchAll();
-            echo json_encode(['code' => 0, 'data' => $signups]);
-            exit;
-        }
-
-        // ---------- 管理员审核报名 ----------
-        if ($action === 'admin_review_signup') {
-            if (!isset($_SESSION['user_id'])) {
-                echo json_encode(['code' => 40100, 'message' => '未登录']);
-                exit;
-            }
-            $user_id = $_SESSION['user_id'];
-            $stmt = $pdo->prepare("SELECT role FROM gsk_users WHERE id = ?");
-            $stmt->execute([$user_id]);
-            $user = $stmt->fetch();
-            if (!in_array($user['role'], ['ADMIN', 'TEACHER'])) {
-                http_response_code(403);
-                echo json_encode(['code' => 40300, 'message' => '无权限']);
-                exit;
-            }
-
-            $input = json_decode(file_get_contents('php://input'), true);
-            $signup_id = intval($input['signup_id'] ?? 0);
-            $status = $input['status'] ?? '';
-            if (!in_array($status, ['approved', 'rejected'])) {
-                http_response_code(400);
-                echo json_encode(['code' => 40001, 'message' => '无效状态']);
-                exit;
-            }
-            $stmt = $pdo->prepare("UPDATE gsk_exam_signups SET status = ? WHERE id = ?");
-            $stmt->execute([$status, $signup_id]);
-            echo json_encode(['code' => 0, 'message' => '审核完成']);
-            exit;
-        }
-
         // 未知 action
         http_response_code(400);
         echo json_encode(['code' => 40001, 'message' => '无效的操作']);
@@ -525,7 +579,7 @@ if (!in_array($page, $allowed_pages)) {
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <style>
-    /* ===== 全局样式（完整） ===== */
+    /* ===== 全局样式 ===== */
     * { margin:0; padding:0; box-sizing:border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -596,6 +650,8 @@ if (!in_array($page, $allowed_pages)) {
       flex: 1;
       width: 100%;
     }
+    .page { display: none; }
+    .page.active { display: block; }
     .card {
       background: #ffffff;
       border-radius: 12px;
@@ -680,7 +736,6 @@ if (!in_array($page, $allowed_pages)) {
     .exam-empty i { font-size: 4rem; color: #d4a373; margin-bottom: 1rem; display: block; }
     .exam-empty h3 { font-size: 1.5rem; color: #0b3b4c; margin-bottom: 0.5rem; }
 
-    /* 进度卡片 */
     .progress-card {
       background: #f8fafc;
       border-radius: 10px;
@@ -717,7 +772,6 @@ if (!in_array($page, $allowed_pages)) {
     }
     .no-exams-msg i { font-size: 2.5rem; display: block; margin-bottom: 0.5rem; color: #d4a373; }
 
-    /* PDF 阅读器 */
     .pdf-container {
       max-width: 900px;
       margin: 0 auto;
@@ -782,7 +836,6 @@ if (!in_array($page, $allowed_pages)) {
     }
     .pdf-loading i { font-size: 2.5rem; display: block; margin-bottom: 0.5rem; }
 
-    /* 周常卡片 */
     .exam-cards {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -854,7 +907,6 @@ if (!in_array($page, $allowed_pages)) {
     .ranking-row .name { flex: 1; }
     .ranking-row .score { font-weight: 700; color: #0b3b4c; }
 
-    /* 答题模式 */
     .exam-container { max-width: 800px; margin: 0 auto; }
     .exam-header {
       text-align: center;
@@ -933,7 +985,6 @@ if (!in_array($page, $allowed_pages)) {
     .btn-submit-exam:hover { background: #0a2f3d; }
     .btn-submit-exam:disabled { opacity: 0.6; cursor: not-allowed; }
 
-    /* 排行榜独立视图 */
     .ranking-container { max-width: 600px; margin: 0 auto; }
     .ranking-item {
       display: flex;
@@ -980,7 +1031,6 @@ if (!in_array($page, $allowed_pages)) {
     }
     .my-score .big-score { font-size: 2rem; font-weight: 700; color: #0b3b4c; }
 
-    /* 答题回顾 */
     .answer-review .user-answer {
       background: #f1f5f9;
       padding: 0.3rem 0.8rem;
@@ -998,7 +1048,6 @@ if (!in_array($page, $allowed_pages)) {
     .answer-review .score-badge.wrong { background: #fce4ec; color: #b91c1c; }
     .answer-review .score-badge.pending { background: #fef3c7; color: #b45309; }
 
-    /* 账号样式 */
     .auth-tabs {
       display: flex;
       border-bottom: 2px solid #e9edf2;
@@ -1260,7 +1309,6 @@ if (!in_array($page, $allowed_pages)) {
     (function() {
       'use strict';
 
-      // ========== 当前页面标识 ==========
       const CURRENT_PAGE = '<?= $page ?>';
 
       // ========== API 调用层 ==========
@@ -1304,8 +1352,10 @@ if (!in_array($page, $allowed_pages)) {
         async updateAvatar(avatar) {
             return this._request('update_avatar', { avatar });
         },
-        async getExams() {
-            return this._get('get_exams');
+        async getExams(type = null) {
+            let params = {};
+            if (type) params.type = type;
+            return this._get('get_exams', params);
         },
         async getUserExamStatus() {
             return this._get('get_user_exam_status');
@@ -1432,18 +1482,7 @@ if (!in_array($page, $allowed_pages)) {
           adminBtn.style.display = 'none';
         }
 
-        // ===== 渲染当前页面内容 =====
         renderCurrentPage();
-      }
-
-      // ===== 渲染当前页面 =====
-      function renderCurrentPage() {
-        if (CURRENT_PAGE === 'home') {
-          renderHomeProgress();
-        } else if (CURRENT_PAGE === 'weekly') {
-          renderWeekly();
-        }
-        // 其他页面不需要额外渲染
       }
 
       async function initUser() {
@@ -1457,6 +1496,11 @@ if (!in_array($page, $allowed_pages)) {
         } catch (e) {
           updateUIForUser(null);
         }
+      }
+
+      function renderCurrentPage() {
+        if (CURRENT_PAGE === 'home') renderHomeProgress();
+        else if (CURRENT_PAGE === 'weekly') renderWeekly();
       }
 
       // 认证切换
@@ -1650,14 +1694,18 @@ if (!in_array($page, $allowed_pages)) {
         const container = $('#weeklyContainer');
         if (!container) return;
         try {
-          const examsRes = await API.getExams();
-          if (examsRes.code !== 0 || !examsRes.data || examsRes.data.length === 0) {
-            container.innerHTML = '<p style="color:#94a3b8; text-align:center; padding:1rem 0;">暂无已发布的考试</p>';
+          container.innerHTML = '<p style="color:#94a3b8;text-align:center;padding:1rem 0;">加载中...</p>';
+          const res = await API.getExams('weekly');
+          if (res.code !== 0) {
+            container.innerHTML = `<p style="color:#b91c1c;text-align:center;padding:1rem 0;">❌ ${res.message}</p>`;
             return;
           }
-          const exams = examsRes.data;
+          const exams = res.data;
+          if (!exams || exams.length === 0) {
+            container.innerHTML = '<p style="color:#94a3b8;text-align:center;padding:1rem 0;">暂无周常任务</p>';
+            return;
+          }
           const latestExam = exams[0];
-
           let rankingHtml = '';
           try {
             const rankRes = await API.getRanking(latestExam.id);
@@ -1714,12 +1762,12 @@ if (!in_array($page, $allowed_pages)) {
           container.innerHTML = rankingHtml + cardsHtml;
 
         } catch (e) {
-          container.innerHTML = '<p style="color:#b91c1c; text-align:center; padding:1rem 0;">❌ 加载失败，请稍后重试。</p>';
+          container.innerHTML = `<p style="color:#b91c1c;text-align:center;padding:1rem 0;">加载失败</p>`;
           console.error('周常加载错误:', e);
         }
       }
 
-      // ========== 核心交互（考试） ==========
+      // ========== 考试交互 ==========
       window.LunaticChO = {
         handleExamClick: async function(examId) {
           if (!currentUser) {
@@ -2003,10 +2051,9 @@ if (!in_array($page, $allowed_pages)) {
         }
       };
 
-      // ========== 页面加载初始化 ==========
+      // ========== 启动 ==========
       initUser();
 
-      // 菜单关闭
       document.addEventListener('click', (e) => {
         if (!e.target.closest('.navbar')) navList.classList.remove('open');
       });
@@ -2014,86 +2061,84 @@ if (!in_array($page, $allowed_pages)) {
       console.log('LunaticChO 启动，当前页面：', CURRENT_PAGE);
     })();
   </script>
-
-  <!-- 页面特有脚本（博物志 PDF） -->
   <?php if ($page === 'museum'): ?>
-    <script>
-      (function() {
-        'use strict';
-        const PDF_URL = 'yan_shi_bo_wu_zhi.pdf';
-        let pdfDoc = null,
-            pageNum = 1,
-            pageRendering = false,
-            pageNumPending = null,
-            scale = 2.0;
-        const canvas = document.createElement('canvas');
-        const viewer = document.getElementById('pdfViewer');
-        if (!viewer) return;
-        const ctx = canvas.getContext('2d');
-        viewer.innerHTML = '';
-        viewer.appendChild(canvas);
+  <script>
+    (function() {
+      'use strict';
+      const PDF_URL = 'yan_shi_bo_wu_zhi.pdf';
+      let pdfDoc = null,
+          pageNum = 1,
+          pageRendering = false,
+          pageNumPending = null,
+          scale = 2.0;
+      const canvas = document.createElement('canvas');
+      const viewer = document.getElementById('pdfViewer');
+      if (!viewer) return;
+      const ctx = canvas.getContext('2d');
+      viewer.innerHTML = '';
+      viewer.appendChild(canvas);
 
-        function renderPage(num) {
-          pageRendering = true;
-          pdfDoc.getPage(num).then(function(page) {
-            const viewport = page.getViewport({ scale: scale });
-            canvas.height = viewport.height;
-            canvas.width = viewport.width;
-            canvas.style.width = '100%';
-            canvas.style.height = 'auto';
-            const renderContext = {
-              canvasContext: ctx,
-              viewport: viewport
-            };
-            const renderTask = page.render(renderContext);
-            renderTask.promise.then(function() {
-              pageRendering = false;
-              if (pageNumPending !== null) {
-                renderPage(pageNumPending);
-                pageNumPending = null;
-              }
-            });
+      function renderPage(num) {
+        pageRendering = true;
+        pdfDoc.getPage(num).then(function(page) {
+          const viewport = page.getViewport({ scale: scale });
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+          canvas.style.width = '100%';
+          canvas.style.height = 'auto';
+          const renderContext = {
+            canvasContext: ctx,
+            viewport: viewport
+          };
+          const renderTask = page.render(renderContext);
+          renderTask.promise.then(function() {
+            pageRendering = false;
+            if (pageNumPending !== null) {
+              renderPage(pageNumPending);
+              pageNumPending = null;
+            }
           });
-          document.getElementById('pdfPageInfo').textContent = num + ' / ' + pdfDoc.numPages;
-          document.getElementById('pdfPrev').disabled = (num <= 1);
-          document.getElementById('pdfNext').disabled = (num >= pdfDoc.numPages);
-        }
-
-        function queueRenderPage(num) {
-          if (pageRendering) {
-            pageNumPending = num;
-          } else {
-            renderPage(num);
-          }
-        }
-
-        function loadPDF() {
-          pdfjsLib.getDocument(PDF_URL).promise.then(function(pdf) {
-            pdfDoc = pdf;
-            pageNum = 1;
-            renderPage(pageNum);
-          }).catch(function(err) {
-            viewer.innerHTML = '<div style="text-align:center;padding:2rem;color:#b91c1c;"><i class="fas fa-exclamation-triangle" style="font-size:2.5rem;display:block;margin-bottom:0.5rem;"></i><p>无法加载 PDF 文件，请确保文件存在且路径正确。</p><p style="font-size:0.85rem;color:#94a3b8;">' + err.message + '</p></div>';
-            console.error('PDF加载错误:', err);
-          });
-        }
-
-        document.getElementById('pdfPrev').addEventListener('click', function() {
-          if (pdfDoc && pageNum > 1) {
-            pageNum--;
-            queueRenderPage(pageNum);
-          }
         });
-        document.getElementById('pdfNext').addEventListener('click', function() {
-          if (pdfDoc && pageNum < pdfDoc.numPages) {
-            pageNum++;
-            queueRenderPage(pageNum);
-          }
-        });
+        document.getElementById('pdfPageInfo').textContent = num + ' / ' + pdfDoc.numPages;
+        document.getElementById('pdfPrev').disabled = (num <= 1);
+        document.getElementById('pdfNext').disabled = (num >= pdfDoc.numPages);
+      }
 
-        loadPDF();
-      })();
-    </script>
+      function queueRenderPage(num) {
+        if (pageRendering) {
+          pageNumPending = num;
+        } else {
+          renderPage(num);
+        }
+      }
+
+      function loadPDF() {
+        pdfjsLib.getDocument(PDF_URL).promise.then(function(pdf) {
+          pdfDoc = pdf;
+          pageNum = 1;
+          renderPage(pageNum);
+        }).catch(function(err) {
+          viewer.innerHTML = '<div style="text-align:center;padding:2rem;color:#b91c1c;"><i class="fas fa-exclamation-triangle" style="font-size:2.5rem;display:block;margin-bottom:0.5rem;"></i><p>无法加载 PDF 文件，请确保文件存在且路径正确。</p><p style="font-size:0.85rem;color:#94a3b8;">' + err.message + '</p></div>';
+          console.error('PDF加载错误:', err);
+        });
+      }
+
+      document.getElementById('pdfPrev').addEventListener('click', function() {
+        if (pdfDoc && pageNum > 1) {
+          pageNum--;
+          queueRenderPage(pageNum);
+        }
+      });
+      document.getElementById('pdfNext').addEventListener('click', function() {
+        if (pdfDoc && pageNum < pdfDoc.numPages) {
+          pageNum++;
+          queueRenderPage(pageNum);
+        }
+      });
+
+      loadPDF();
+    })();
+  </script>
   <?php endif; ?>
 </body>
 </html>
