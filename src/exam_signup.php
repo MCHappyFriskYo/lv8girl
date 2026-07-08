@@ -28,8 +28,6 @@ $exam = $stmt->fetch();
 if (!$exam) {
     die('考试不存在');
 }
-
-$username = $_SESSION['username'];
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -84,7 +82,6 @@ $username = $_SESSION['username'];
       border: 1px solid #d1d9e6;
       border-radius: 6px;
       font-size: 0.95rem;
-      background: #f1f5f9;
       transition: border-color 0.15s;
     }
     .form-group input:focus {
@@ -92,10 +89,9 @@ $username = $_SESSION['username'];
       border-color: #0b3b4c;
       box-shadow: 0 0 0 3px rgba(11,59,76,0.1);
     }
-    .form-group input:read-only {
-      background: #f1f5f9;
-      color: #1e293b;
-      cursor: default;
+    .form-group .required {
+      color: #b91c1c;
+      margin-left: 2px;
     }
     .btn-submit {
       width: 100%;
@@ -134,23 +130,22 @@ $username = $_SESSION['username'];
       text-decoration: none;
     }
     .back-link:hover { text-decoration: underline; }
-    .info-text {
-      color: #64748b;
-      font-size: 0.9rem;
-      margin-bottom: 1rem;
-    }
   </style>
 </head>
 <body>
 <div class="container">
   <h1><i class="fas fa-pencil-alt" style="color:#d4a373;"></i> 联考报名</h1>
   <div class="subtitle"><?= htmlspecialchars($exam['title']) ?></div>
-  <div class="info-text">报名信息将使用您的账户信息，无需额外填写。</div>
   <form id="signupForm">
     <div class="form-group">
-      <label>用户名（报名人）</label>
-      <input type="text" id="username" value="<?= htmlspecialchars($username) ?>" readonly>
+      <label>姓名 <span class="required">*</span></label>
+      <input type="text" id="studentName" required placeholder="请输入姓名">
     </div>
+    <div class="form-group">
+      <label>学号 <span class="required">*</span></label>
+      <input type="text" id="studentId" required placeholder="请输入学号">
+    </div>
+    <!-- 班级和手机号已移除，但保留字段以防万一 -->
     <button type="submit" class="btn-submit">提交报名</button>
     <div id="message" class="message"></div>
     <a href="?page=exam" class="back-link">← 返回联考列表</a>
@@ -164,16 +159,30 @@ $username = $_SESSION['username'];
 
   form.addEventListener('submit', async function(e) {
     e.preventDefault();
+    const studentName = document.getElementById('studentName').value.trim();
+    const studentId = document.getElementById('studentId').value.trim();
+
+    if (!studentName || !studentId) {
+      msgDiv.className = 'message error';
+      msgDiv.textContent = '请填写姓名和学号';
+      return;
+    }
 
     submitBtn.disabled = true;
     submitBtn.textContent = '提交中...';
 
     try {
+      const examId = <?= $exam_id ?>; // 直接输出到 JavaScript
       const res = await fetch('?action=submit_signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          exam_id: <?= $exam_id ?>
+          exam_id: examId,
+          student_name: studentName,
+          student_id: studentId,
+          class: '',  // 保留空值
+          phone: '',  // 保留空值
+          email: ''
         })
       });
       const data = await res.json();
@@ -193,6 +202,7 @@ $username = $_SESSION['username'];
       msgDiv.textContent = '网络错误，请重试';
       submitBtn.disabled = false;
       submitBtn.textContent = '提交报名';
+      console.error(e);
     }
   });
 </script>
