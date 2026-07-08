@@ -22,12 +22,19 @@ try {
     die('数据库连接失败');
 }
 
+// 获取考试信息
 $stmt = $pdo->prepare("SELECT title FROM gsk_exams WHERE id = ?");
 $stmt->execute([$exam_id]);
 $exam = $stmt->fetch();
 if (!$exam) {
     die('考试不存在');
 }
+
+// 获取当前用户信息
+$stmt = $pdo->prepare("SELECT username FROM gsk_users WHERE id = ?");
+$stmt->execute([$_SESSION['user_id']]);
+$user = $stmt->fetch();
+$username = $user ? $user['username'] : '';
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -93,6 +100,11 @@ if (!$exam) {
       color: #b91c1c;
       margin-left: 2px;
     }
+    .form-group .info-text {
+      font-size: 0.8rem;
+      color: #94a3b8;
+      margin-top: 0.2rem;
+    }
     .btn-submit {
       width: 100%;
       padding: 0.7rem;
@@ -136,16 +148,22 @@ if (!$exam) {
 <div class="container">
   <h1><i class="fas fa-pencil-alt" style="color:#d4a373;"></i> 联考报名</h1>
   <div class="subtitle"><?= htmlspecialchars($exam['title']) ?></div>
+  <p style="color:#64748b; margin-bottom:1.2rem; font-size:0.9rem;">
+    <i class="fas fa-user"></i> 当前用户：<strong><?= htmlspecialchars($username) ?></strong>
+  </p>
   <form id="signupForm">
-    <div class="form-group">
-      <label>姓名 <span class="required">*</span></label>
-      <input type="text" id="studentName" required placeholder="请输入姓名">
-    </div>
+    <!-- 隐藏 exam_id -->
+    <input type="hidden" id="examId" value="<?= $exam_id ?>">
+    
     <div class="form-group">
       <label>学号 <span class="required">*</span></label>
-      <input type="text" id="studentId" required placeholder="请输入学号">
+      <input type="text" id="studentId" required placeholder="请输入您的学号">
+      <div class="info-text">请填写您的学生证号码</div>
     </div>
-    <!-- 班级和手机号已移除，但保留字段以防万一 -->
+    <div class="form-group">
+      <label>QQ号 <span class="required">*</span></label>
+      <input type="text" id="qq" required placeholder="请输入QQ号码">
+    </div>
     <button type="submit" class="btn-submit">提交报名</button>
     <div id="message" class="message"></div>
     <a href="?page=exam" class="back-link">← 返回联考列表</a>
@@ -159,12 +177,13 @@ if (!$exam) {
 
   form.addEventListener('submit', async function(e) {
     e.preventDefault();
-    const studentName = document.getElementById('studentName').value.trim();
+    const examId = document.getElementById('examId').value;
     const studentId = document.getElementById('studentId').value.trim();
+    const qq = document.getElementById('qq').value.trim();
 
-    if (!studentName || !studentId) {
+    if (!studentId || !qq) {
       msgDiv.className = 'message error';
-      msgDiv.textContent = '请填写姓名和学号';
+      msgDiv.textContent = '请填写所有必填项';
       return;
     }
 
@@ -172,17 +191,13 @@ if (!$exam) {
     submitBtn.textContent = '提交中...';
 
     try {
-      const examId = <?= $exam_id ?>; // 直接输出到 JavaScript
       const res = await fetch('?action=submit_signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           exam_id: examId,
-          student_name: studentName,
           student_id: studentId,
-          class: '',  // 保留空值
-          phone: '',  // 保留空值
-          email: ''
+          qq: qq
         })
       });
       const data = await res.json();
@@ -202,7 +217,6 @@ if (!$exam) {
       msgDiv.textContent = '网络错误，请重试';
       submitBtn.disabled = false;
       submitBtn.textContent = '提交报名';
-      console.error(e);
     }
   });
 </script>
