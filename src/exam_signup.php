@@ -97,11 +97,6 @@ $username = $user ? $user['username'] : '';
       color: #b91c1c;
       margin-left: 2px;
     }
-    .form-group .info-text {
-      font-size: 0.8rem;
-      color: #94a3b8;
-      margin-top: 0.2rem;
-    }
     .btn-submit {
       width: 100%;
       padding: 0.7rem;
