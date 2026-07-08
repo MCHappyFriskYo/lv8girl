@@ -6,8 +6,21 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $exam_id = intval($_GET['exam_id'] ?? 0);
+// 如果 exam_id 无效，直接显示错误信息
 if (!$exam_id) {
-    die('缺少考试ID');
+    die('
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="UTF-8"><title>错误</title></head>
+        <body style="font-family: sans-serif; padding: 2rem; background: #f6f8fa;">
+            <div style="max-width: 600px; margin: 0 auto; background: #fff; padding: 2rem; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.05);">
+                <h2 style="color: #b91c1c;">⚠️ 缺少考试ID</h2>
+                <p style="color: #475569;">请从联考列表页面点击“立即报名”进入，或检查链接是否包含 <code>exam_id</code> 参数。</p>
+                <p><a href="?page=exam" style="color: #2563eb; text-decoration: none;">← 返回联考列表</a></p>
+            </div>
+        </body>
+        </html>
+    ');
 }
 
 $host = 'lv8girl-db';
@@ -134,12 +147,23 @@ $username = $user ? $user['username'] : '';
       text-decoration: none;
     }
     .back-link:hover { text-decoration: underline; }
+    .debug-info {
+      background: #fef3c7;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      color: #92400e;
+      margin-bottom: 1rem;
+    }
   </style>
 </head>
 <body>
 <div class="container">
   <h1><i class="fas fa-pencil-alt" style="color:#d4a373;"></i> 联考报名</h1>
   <div class="subtitle"><?= htmlspecialchars($exam['title']) ?></div>
+  <div class="debug-info">
+    <i class="fas fa-info-circle"></i> 考试ID：<strong><?= $exam_id ?></strong>（如果此值异常，请检查链接）
+  </div>
   <p style="color:#64748b; margin-bottom:1.2rem; font-size:0.9rem;">
     <i class="fas fa-user"></i> 当前用户：<strong><?= htmlspecialchars($username) ?></strong>
   </p>
@@ -168,6 +192,13 @@ $username = $user ? $user['username'] : '';
     if (!qq) {
       msgDiv.className = 'message error';
       msgDiv.textContent = '请填写QQ号';
+      return;
+    }
+
+    // 再次检查 examId
+    if (!examId || examId === '0') {
+      msgDiv.className = 'message error';
+      msgDiv.textContent = '❌ 考试ID无效，请重新从联考列表进入';
       return;
     }
 
