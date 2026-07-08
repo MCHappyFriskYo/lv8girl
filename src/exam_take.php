@@ -15,7 +15,7 @@ if (!$exam_id) {
 }
 
 // 数据库连接
-$host = 'db';
+$host = 'lv8girl-db';
 $dbname = 'lv8girl';
 $db_user = 'lv8girl';
 $db_pass = 'yourpasswd';
