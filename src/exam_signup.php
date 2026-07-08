@@ -10,7 +10,6 @@ if (!$exam_id) {
     die('缺少考试ID');
 }
 
-// 数据库连接
 $host = 'lv8girl-db';
 $dbname = 'lv8girl';
 $db_user = 'lv8girl';
@@ -22,7 +21,6 @@ try {
     die('数据库连接失败');
 }
 
-// 获取考试信息
 $stmt = $pdo->prepare("SELECT title FROM gsk_exams WHERE id = ?");
 $stmt->execute([$exam_id]);
 $exam = $stmt->fetch();
@@ -30,7 +28,6 @@ if (!$exam) {
     die('考试不存在');
 }
 
-// 获取当前用户信息
 $stmt = $pdo->prepare("SELECT username FROM gsk_users WHERE id = ?");
 $stmt->execute([$_SESSION['user_id']]);
 $user = $stmt->fetch();
@@ -152,9 +149,7 @@ $username = $user ? $user['username'] : '';
     <i class="fas fa-user"></i> 当前用户：<strong><?= htmlspecialchars($username) ?></strong>
   </p>
   <form id="signupForm">
-    <!-- 隐藏 exam_id -->
     <input type="hidden" id="examId" value="<?= $exam_id ?>">
-    
     <div class="form-group">
       <label>学号 <span class="required">*</span></label>
       <input type="text" id="studentId" required placeholder="请输入您的学号">
