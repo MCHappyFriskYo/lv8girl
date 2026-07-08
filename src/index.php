@@ -213,28 +213,34 @@ if (isset($_REQUEST['action'])) {
 
         // ---------- 获取已发布的考试列表 ----------
         if ($action === 'get_exams') {
-            try {
-                $stmt = $pdo->query("SHOW TABLES LIKE 'gsk_exams'");
-                if ($stmt->rowCount() == 0) {
-                    echo json_encode(['code' => 40400, 'message' => '表 gsk_exams 不存在']);
-                    exit;
-                }
-                $stmt = $pdo->query("SELECT * FROM gsk_exams WHERE status = 'published' ORDER BY published_at DESC");
-                $exams = $stmt->fetchAll();
-                foreach ($exams as &$exam) {
-                    $stmt2 = $pdo->prepare("SELECT COUNT(*) as qcount FROM gsk_questions WHERE exam_id = ?");
-                    $stmt2->execute([$exam['id']]);
-                    $exam['question_count'] = $stmt2->fetch()['qcount'];
-                    $stmt2 = $pdo->prepare("SELECT SUM(score) as total FROM gsk_questions WHERE exam_id = ?");
-                    $stmt2->execute([$exam['id']]);
-                    $exam['total_score'] = $stmt2->fetch()['total'] ?? 0;
-                }
-                echo json_encode(['code' => 0, 'data' => $exams]);
-            } catch (Exception $e) {
-                echo json_encode(['code' => 50000, 'message' => '数据库错误：' . $e->getMessage()]);
-            }
+    $type = $_GET['type'] ?? null; // 可选参数 weekly / exam
+    try {
+        $stmt = $pdo->query("SHOW TABLES LIKE 'gsk_exams'");
+        if ($stmt->rowCount() == 0) {
+            echo json_encode(['code' => 404, 'message' => '表 gsk_exams 不存在']);
             exit;
         }
+        $sql = "SELECT * FROM gsk_exams WHERE status = 'published'";
+        if ($type && in_array($type, ['weekly', 'exam'])) {
+            $sql .= " AND type = '" . $type . "'";
+        }
+        $sql .= " ORDER BY published_at DESC";
+        $stmt = $pdo->query($sql);
+        $exams = $stmt->fetchAll();
+        foreach ($exams as &$exam) {
+            $stmt2 = $pdo->prepare("SELECT COUNT(*) as qcount FROM gsk_questions WHERE exam_id = ?");
+            $stmt2->execute([$exam['id']]);
+            $exam['question_count'] = $stmt2->fetch()['qcount'] ?? 0;
+            $stmt2 = $pdo->prepare("SELECT SUM(score) as total FROM gsk_questions WHERE exam_id = ?");
+            $stmt2->execute([$exam['id']]);
+            $exam['total_score'] = $stmt2->fetch()['total'] ?? 0;
+        }
+        echo json_encode(['code' => 0, 'data' => $exams]);
+    } catch (Exception $e) {
+        echo json_encode(['code' => 500, 'message' => '异常：' . $e->getMessage()]);
+    }
+    exit;
+}
 
         // ---------- 获取用户在各考试中的答题状态 ----------
         if ($action === 'get_user_exam_status') {
