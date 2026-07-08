@@ -151,11 +151,6 @@ $username = $user ? $user['username'] : '';
   <form id="signupForm">
     <input type="hidden" id="examId" value="<?= $exam_id ?>">
     <div class="form-group">
-      <label>学号 <span class="required">*</span></label>
-      <input type="text" id="studentId" required placeholder="请输入您的学号">
-      <div class="info-text">请填写您的学生证号码</div>
-    </div>
-    <div class="form-group">
       <label>QQ号 <span class="required">*</span></label>
       <input type="text" id="qq" required placeholder="请输入QQ号码">
     </div>
@@ -173,12 +168,11 @@ $username = $user ? $user['username'] : '';
   form.addEventListener('submit', async function(e) {
     e.preventDefault();
     const examId = document.getElementById('examId').value;
-    const studentId = document.getElementById('studentId').value.trim();
     const qq = document.getElementById('qq').value.trim();
 
-    if (!studentId || !qq) {
+    if (!qq) {
       msgDiv.className = 'message error';
-      msgDiv.textContent = '请填写所有必填项';
+      msgDiv.textContent = '请填写QQ号';
       return;
     }
 
@@ -191,7 +185,6 @@ $username = $user ? $user['username'] : '';
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           exam_id: examId,
-          student_id: studentId,
           qq: qq
         })
       });
