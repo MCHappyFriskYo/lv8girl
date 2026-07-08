@@ -1,5 +1,5 @@
 <div class="card">
-  <div class="card-title"><i class="fas fa-pencil-alt"></i>联考报名</div>
+  <div class="card-title"><i class="fas fa-pencil-alt"></i> 联考报名</div>
   <div id="examListContainer">
     <!-- 由 JavaScript 动态渲染 -->
   </div>
@@ -44,15 +44,11 @@
           const hasSigned = signupStatus && signupStatus.has_signed;
           const statusText = hasSigned ? (signupStatus.status === 'approved' ? '✅ 已通过' : (signupStatus.status === 'rejected' ? '❌ 已拒绝' : '⏳ 审核中')) : '';
 
-          // 时间检查
           const now = new Date();
           const start = exam.start_time ? new Date(exam.start_time) : null;
           const end = exam.end_time ? new Date(exam.end_time) : null;
           
-          // 报名条件：未结束且（未设置开始时间或当前时间早于开始时间）
           const canSignup = exam.status !== 'ended' && (!start || now < start);
-          
-          // 进入考试条件：未结束，已开始且未结束
           const canEnter = exam.status !== 'ended' && (!start || now >= start) && (!end || now <= end);
 
           html += `
