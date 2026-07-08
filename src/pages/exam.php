@@ -10,10 +10,9 @@
     const container = document.getElementById('examListContainer');
     if (!container) return;
 
-    // 加载考试列表
     async function loadExams() {
       try {
-        const res = await fetch('?action=get_exams');
+        const res = await fetch('?action=get_exams&type=exam');
         const data = await res.json();
         if (data.code !== 0) {
           container.innerHTML = `<p style="color:#b91c1c;">加载失败：${data.message}</p>`;
@@ -21,11 +20,10 @@
         }
         const exams = data.data;
         if (!exams || exams.length === 0) {
-          container.innerHTML = '<p style="color:#94a3b8;">暂无已发布的考试</p>';
+          container.innerHTML = '<p style="color:#94a3b8;">暂无联考，请关注后续通知</p>';
           return;
         }
 
-        // 获取当前用户登录状态（通过全局 currentUser 或单独请求）
         let currentUser = null;
         try {
           const userRes = await fetch('?action=get_user');
@@ -35,7 +33,6 @@
 
         let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1.2rem;margin-top:1rem;">';
         for (const exam of exams) {
-          // 检查报名状态
           let signupStatus = null;
           if (currentUser) {
             try {
