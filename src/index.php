@@ -261,48 +261,71 @@ if (isset($_REQUEST['action'])) {
 
         // ---------- 提交报名 ----------
 if ($action === 'submit_signup') {
-    if (!isset($_SESSION['user_id'])) {
-        echo json_encode(['code' => 40100, 'message' => '请先登录']);
-        exit;
-    }
-    $input = json_decode(file_get_contents('php://input'), true);
-    if (!$input) {
-        $input = $_POST;
-    }
-    $exam_id = intval($input['exam_id'] ?? 0);
-    if (!$exam_id) {
-        http_response_code(400);
-        echo json_encode(['code' => 40001, 'message' => '缺少考试ID']);
-        exit;
-    }
-    $qq = trim($input['qq'] ?? '');
+    // 开启错误显示（用于调试，部署后可关闭）
+    ini_set('display_errors', 1);
+    error_reporting(E_ALL);
 
-    if (!$qq) {
-        http_response_code(400);
-        echo json_encode(['code' => 40001, 'message' => '请填写QQ号']);
-        exit;
+    try {
+        if (!isset($_SESSION['user_id'])) {
+            echo json_encode(['code' => 40100, 'message' => '请先登录']);
+            exit;
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true);
+        if (!$input) {
+            // 如果是 form-data 方式，兼容
+            $input = $_POST;
+        }
+
+        $exam_id = intval($input['exam_id'] ?? 0);
+        $qq = trim($input['qq'] ?? '');
+
+        if (!$exam_id) {
+            http_response_code(400);
+            echo json_encode(['code' => 40001, 'message' => '缺少考试ID']);
+            exit;
+        }
+        if (!$qq) {
+            http_response_code(400);
+            echo json_encode(['code' => 40001, 'message' => '请填写QQ号']);
+            exit;
+        }
+
+        $user_id = $_SESSION['user_id'];
+        $pdo = gsk_config(); // 确保函数已定义
+
+        // 获取用户名作为姓名
+        $stmt = $pdo->prepare("SELECT username FROM gsk_users WHERE id = ?");
+        $stmt->execute([$user_id]);
+        $user = $stmt->fetch();
+        $student_name = $user ? $user['username'] : '';
+
+        // 检查是否已报名
+        $stmt = $pdo->prepare("SELECT id FROM gsk_exam_signups WHERE exam_id = ? AND user_id = ?");
+        $stmt->execute([$exam_id, $user_id]);
+        if ($stmt->fetch()) {
+            http_response_code(409);
+            echo json_encode(['code' => 40900, 'message' => '您已报名此考试，不可重复报名']);
+            exit;
+        }
+
+        // 插入记录（student_id, class, phone, email 留空）
+        $stmt = $pdo->prepare("INSERT INTO gsk_exam_signups (exam_id, user_id, student_name, student_id, class, phone, qq, email, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')");
+        $result = $stmt->execute([$exam_id, $user_id, $student_name, '', '', '', $qq, '']);
+
+        if ($result) {
+            echo json_encode(['code' => 0, 'message' => '报名成功，请等待审核']);
+        } else {
+            http_response_code(500);
+            echo json_encode(['code' => 50000, 'message' => '数据库插入失败']);
+        }
+    } catch (PDOException $e) {
+        http_response_code(500);
+        echo json_encode(['code' => 50000, 'message' => '数据库错误：' . $e->getMessage()]);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['code' => 50000, 'message' => '服务器错误：' . $e->getMessage()]);
     }
-
-    $user_id = $_SESSION['user_id'];
-    // 获取用户名作为姓名
-    $stmt = $pdo->prepare("SELECT username FROM gsk_users WHERE id = ?");
-    $stmt->execute([$user_id]);
-    $user = $stmt->fetch();
-    $student_name = $user ? $user['username'] : '';
-
-    // 检查是否已报名
-    $stmt = $pdo->prepare("SELECT id FROM gsk_exam_signups WHERE exam_id = ? AND user_id = ?");
-    $stmt->execute([$exam_id, $user_id]);
-    if ($stmt->fetch()) {
-        http_response_code(409);
-        echo json_encode(['code' => 40900, 'message' => '您已报名此考试，不可重复报名']);
-        exit;
-    }
-
-    // 插入报名记录（student_id 存为空或NULL，此处存空字符串）
-    $stmt = $pdo->prepare("INSERT INTO gsk_exam_signups (exam_id, user_id, student_name, student_id, class, phone, qq, email, status) VALUES (?, ?, ?, '', '', '', ?, '', 'pending')");
-    $stmt->execute([$exam_id, $user_id, $student_name, $qq]);
-    echo json_encode(['code' => 0, 'message' => '报名成功，请等待审核']);
     exit;
 }
 
