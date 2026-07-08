@@ -1,6 +1,6 @@
 <?php
 /**
- * LunaticChO 管理后台 - 修复学生列表重复
+ * LunaticChO 管理后台 - 完整版（含报名管理）
  */
 
 session_start();
@@ -20,7 +20,7 @@ if (!is_dir('uploads')) {
 }
 
 function gsk_config() {
-    $host = 'lv8girl-db';
+    $host = 'db';
     $dbname = 'lv8girl';
     $db_user = 'lv8girl';
     $db_pass = 'yourpasswd';
@@ -291,7 +291,7 @@ if ($exam_id) {
         $stmt->execute([$exam_id]);
         $questions = $stmt->fetchAll();
         
-        // ===== 修复：使用 GROUP BY 确保学生唯一 =====
+        // 获取学生列表
         $stmt = $pdo->prepare("SELECT u.id, u.username, u.email, r.total_score, r.status as result_status 
                                FROM gsk_users u 
                                LEFT JOIN gsk_results r ON r.exam_id = ? AND r.user_id = u.id
@@ -300,7 +300,7 @@ if ($exam_id) {
         $stmt->execute([$exam_id, $exam_id]);
         $students = $stmt->fetchAll();
         
-        // 二次去重（保险）
+        // 去重
         $uniqueStudents = [];
         $seen = [];
         foreach ($students as $stu) {
@@ -311,7 +311,6 @@ if ($exam_id) {
         }
         $students = $uniqueStudents;
         
-        // 获取每个学生的答题详情
         foreach ($students as &$stu) {
             $stmt = $pdo->prepare("SELECT q.id, q.type, q.content, q.options, q.answer as correct_answer, q.score as max_score, 
                                    a.id as answer_id, a.answer as user_answer, a.score, a.status 
@@ -322,7 +321,6 @@ if ($exam_id) {
             $stmt->execute([$stu['id'], $exam_id]);
             $stu['answers'] = $stmt->fetchAll();
             
-            // 如果该学生还没有结果记录，补默认值
             if (!isset($stu['total_score']) && !isset($stu['result_status'])) {
                 $stu['total_score'] = null;
                 $stu['result_status'] = 'pending';
@@ -341,7 +339,7 @@ $msg = $_GET['msg'] ?? '';
     <title>LunaticChO 管理后台</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* ===== 样式与之前相同 ===== */
+        /* ===== 样式（与之前一致） ===== */
         * { margin:0; padding:0; box-sizing:border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -597,7 +595,6 @@ $msg = $_GET['msg'] ?? '';
             <form method="POST" style="margin-top:1rem;" id="questionForm">
                 <input type="hidden" name="action" value="add_question">
                 <input type="hidden" name="exam_id" value="<?= $exam['id'] ?>">
-                
                 <div class="form-row">
                     <div class="form-group">
                         <label>题型</label>
@@ -617,29 +614,24 @@ $msg = $_GET['msg'] ?? '';
                         <input type="number" name="sort_order" value="0">
                     </div>
                 </div>
-                
                 <div class="form-group">
                     <label>题目内容（支持HTML图片，点击下方按钮上传图片）</label>
                     <textarea name="content" id="contentInput" rows="4" required></textarea>
                     <button type="button" class="upload-img-btn" onclick="uploadImage()"><i class="fas fa-image"></i> 上传图片</button>
                     <span style="font-size:0.8rem; color:#94a3b8;">点击后选择图片，自动插入 &lt;img&gt; 标签到内容末尾</span>
                 </div>
-                
                 <div class="form-group" id="optionsGroup">
                     <label>选项（每行一个）</label>
                     <textarea name="options" rows="4" placeholder="A. 选项1&#10;B. 选项2&#10;C. 选项3&#10;D. 选项4"></textarea>
                 </div>
-                
                 <div class="form-group" id="answerGroup">
                     <label>正确答案</label>
                     <input type="text" name="answer" placeholder="单选题填 A/B/C/D，多选题用英文逗号分隔">
                 </div>
-                
                 <div class="form-group hidden" id="fillGroup">
                     <label>填空答案</label>
                     <input type="text" name="fill_answer" placeholder="填空答案">
                 </div>
-                
                 <button type="submit" class="btn btn-success">添加题目</button>
             </form>
         </details>
@@ -710,10 +702,9 @@ $msg = $_GET['msg'] ?? '';
         <?php endif; ?>
     </div>
 
-    <!-- ===== 阅卷管理（修复重复） ===== -->
+    <!-- ===== 阅卷管理 ===== -->
     <div class="section">
         <h2><i class="fas fa-check-double"></i> 阅卷管理</h2>
-        
         <?php if (count($students) > 0): ?>
             <div style="margin-bottom:1rem;">
                 <form method="POST" class="inline" onsubmit="return confirm('确定自动批改所有客观题？')">
@@ -722,7 +713,6 @@ $msg = $_GET['msg'] ?? '';
                     <button type="submit" class="btn btn-warning">🤖 自动批改客观题</button>
                 </form>
             </div>
-            
             <?php foreach ($students as $stu): ?>
                 <details style="margin-bottom:0.8rem;">
                     <summary style="cursor:pointer; font-weight:600; color:#0b3b4c; padding:0.5rem; background:#f8fafc; border-radius:6px;">
@@ -798,10 +788,18 @@ $msg = $_GET['msg'] ?? '';
         <?php endif; ?>
     </div>
     <?php endif; ?>
+
+    <!-- ===== 报名管理 ===== -->
+    <div class="section">
+        <h2><i class="fas fa-clipboard-list"></i> 报名管理</h2>
+        <div id="signupList">
+            <p style="color:#94a3b8;">加载中...</p>
+        </div>
+    </div>
 </div>
 
 <script>
-    // 切换题型
+    // ===== 切换题型 =====
     function toggleOptions() {
         const type = document.getElementById('qType').value;
         const optionsGroup = document.getElementById('optionsGroup');
@@ -829,7 +827,7 @@ $msg = $_GET['msg'] ?? '';
         if (row) row.classList.toggle('hidden');
     }
 
-    // 上传图片（添加）
+    // ===== 图片上传 =====
     function uploadImage() {
         const input = document.createElement('input');
         input.type = 'file';
@@ -859,7 +857,6 @@ $msg = $_GET['msg'] ?? '';
         input.click();
     }
 
-    // 上传图片（编辑）
     function uploadImageForEdit(textareaId) {
         const input = document.createElement('input');
         input.type = 'file';
@@ -888,6 +885,96 @@ $msg = $_GET['msg'] ?? '';
         };
         input.click();
     }
+
+    // ===== 报名管理 =====
+    async function loadSignups() {
+        const container = document.getElementById('signupList');
+        try {
+            const res = await fetch('?action=admin_get_signups');
+            const data = await res.json();
+            if (data.code !== 0) {
+                container.innerHTML = `<p style="color:#b91c1c;">加载失败：${data.message}</p>`;
+                return;
+            }
+            const signups = data.data;
+            if (!signups || signups.length === 0) {
+                container.innerHTML = '<p style="color:#94a3b8;">暂无报名记录</p>';
+                return;
+            }
+            let html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>考试</th>
+                            <th>学生</th>
+                            <th>姓名</th>
+                            <th>学号</th>
+                            <th>班级</th>
+                            <th>手机</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            for (const s of signups) {
+                const statusMap = {
+                    'pending': '<span class="badge badge-grading">待审核</span>',
+                    'approved': '<span class="badge badge-published">已通过</span>',
+                    'rejected': '<span class="badge badge-draft">已拒绝</span>'
+                };
+                html += `
+                    <tr>
+                        <td>${s.id}</td>
+                        <td>${s.exam_title}</td>
+                        <td>${s.username}</td>
+                        <td>${s.student_name}</td>
+                        <td>${s.student_id}</td>
+                        <td>${s.class}</td>
+                        <td>${s.phone}</td>
+                        <td>${statusMap[s.status] || s.status}</td>
+                        <td>
+                            ${s.status === 'pending' ? `
+                                <button class="btn btn-success btn-sm" onclick="reviewSignup(${s.id}, 'approved')">通过</button>
+                                <button class="btn btn-danger btn-sm" onclick="reviewSignup(${s.id}, 'rejected')">拒绝</button>
+                            ` : '-'}
+                        </td>
+                    </tr>
+                `;
+            }
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        } catch (e) {
+            container.innerHTML = '<p style="color:#b91c1c;">加载失败，请刷新</p>';
+            console.error(e);
+        }
+    }
+
+    async function reviewSignup(id, status) {
+        if (!confirm('确认将此报名状态改为 ' + (status === 'approved' ? '通过' : '拒绝') + ' 吗？')) return;
+        try {
+            const res = await fetch('?action=admin_review_signup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ signup_id: id, status: status })
+            });
+            const data = await res.json();
+            if (data.code === 0) {
+                alert('审核成功');
+                loadSignups();
+            } else {
+                alert('审核失败：' + data.message);
+            }
+        } catch (e) {
+            alert('网络错误');
+        }
+    }
+
+    // ===== 页面加载 =====
+    document.addEventListener('DOMContentLoaded', function() {
+        loadSignups();
+    });
 </script>
 </body>
 </html>
