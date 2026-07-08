@@ -19,7 +19,7 @@ if (!is_dir('uploads')) {
 }
 
 function gsk_config() {
-    $host = 'lv8girl-db';
+    $host = 'lv8girl-db'; // 修改数据库主机
     $dbname = 'lv8girl';
     $db_user = 'lv8girl';
     $db_pass = 'yourpasswd'; // 请修改
@@ -84,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    // ---- 更新考试基本信息（标题、描述、时间等） ----
+    // ---- 更新考试基本信息 ----
     if ($action === 'update_exam') {
         $exam_id = $_POST['exam_id'];
         $title = $_POST['title'];
@@ -354,7 +354,7 @@ $msg = $_GET['msg'] ?? '';
     <title>LunaticChO 管理后台</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* ===== 样式 ===== */
+        /* ===== 样式（与之前一致） ===== */
         * { margin:0; padding:0; box-sizing:border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -559,7 +559,7 @@ $msg = $_GET['msg'] ?? '';
                     <label>考试说明</label>
                     <textarea name="description" rows="2"></textarea>
                 </div>
-                <div class="form-row" id="examTimeFields">
+                <div class="form-row">
                     <div class="form-group">
                         <label>开始时间（联考可设置）</label>
                         <input type="datetime-local" name="start_time">
@@ -901,7 +901,7 @@ $msg = $_GET['msg'] ?? '';
 
     <?php endif; ?>
 
-    <!-- ===== 报名管理（独立于考试详情，全局显示） ===== -->
+    <!-- ===== 报名管理 ===== -->
     <div class="section">
         <h2><i class="fas fa-clipboard-list"></i> 报名管理</h2>
         <div id="signupList">
@@ -933,12 +933,11 @@ $msg = $_GET['msg'] ?? '';
                         <tr>
                             <th>ID</th>
                             <th>考试</th>
-                            <th>学生</th>
-                            <th>姓名</th>
+                            <th>报名用户</th>
                             <th>学号</th>
-                            <th>班级</th>
-                            <th>手机</th>
+                            <th>邮箱</th>
                             <th>状态</th>
+                            <th>报名时间</th>
                             <th>操作</th>
                         </tr>
                     </thead>
@@ -955,11 +954,10 @@ $msg = $_GET['msg'] ?? '';
                         <td>${s.id}</td>
                         <td>${s.exam_title}</td>
                         <td>${s.username}</td>
-                        <td>${s.student_name}</td>
                         <td>${s.student_id}</td>
-                        <td>${s.class}</td>
-                        <td>${s.phone}</td>
+                        <td>${s.email || '-'}</td>
                         <td>${statusMap[s.status] || s.status}</td>
+                        <td>${new Date(s.signup_time).toLocaleString()}</td>
                         <td>
                             ${s.status === 'pending' ? `
                                 <button class="btn btn-success btn-sm" onclick="reviewSignup(${s.id}, 'approved')">通过</button>
