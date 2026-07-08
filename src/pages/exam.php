@@ -48,7 +48,12 @@
           const now = new Date();
           const start = exam.start_time ? new Date(exam.start_time) : null;
           const end = exam.end_time ? new Date(exam.end_time) : null;
-          const canEnter = (!start || now >= start) && (!end || now <= end) && exam.status !== 'ended';
+          
+          // 报名条件：未结束且（未设置开始时间或当前时间早于开始时间）
+          const canSignup = exam.status !== 'ended' && (!start || now < start);
+          
+          // 进入考试条件：未结束，已开始且未结束
+          const canEnter = exam.status !== 'ended' && (!start || now >= start) && (!end || now <= end);
 
           html += `
             <div style="background:#f8fafc;border-radius:10px;padding:1.2rem 1.5rem;border-left:4px solid #d4a373;">
@@ -70,13 +75,13 @@
                   (hasSigned ? 
                     (signupStatus.status === 'approved' ? 
                       (canEnter ? 
-                        `<a href="exam_take.php?exam_id=${exam.id}" class="btn" style="display:inline-block;background:#0b3b4c;color:#fff;padding:0.3rem 1.2rem;border-radius:20px;text-decoration:none;font-size:0.9rem;transition:background 0.15s;">进入考试</a>` :
+                        `<a href="exam_take.php?exam_id=${exam.id}" class="btn" style="display:inline-block;background:#0b3b4c;color:#fff;padding:0.3rem 1.2rem;border-radius:20px;text-decoration:none;font-size:0.9rem;">进入考试</a>` :
                         `<span style="color:#b91c1c;font-weight:500;">考试未开始或已结束</span>`
                       ) :
                       `<span style="color:#0b6b4c;font-weight:500;">${statusText}</span>`
                     ) :
-                    (canEnter ? 
-                      `<a href="exam_signup.php?exam_id=${exam.id}" class="btn" style="display:inline-block;background:#0b3b4c;color:#fff;padding:0.3rem 1.2rem;border-radius:20px;text-decoration:none;font-size:0.9rem;transition:background 0.15s;">立即报名</a>` :
+                    (canSignup ? 
+                      `<a href="exam_signup.php?exam_id=${exam.id}" class="btn" style="display:inline-block;background:#0b3b4c;color:#fff;padding:0.3rem 1.2rem;border-radius:20px;text-decoration:none;font-size:0.9rem;">立即报名</a>` :
                       `<span style="color:#94a3b8;">报名已截止</span>`
                     )
                   )
