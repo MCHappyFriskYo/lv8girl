@@ -22,6 +22,7 @@ try {
 }
 
 $user_id = $_SESSION['user_id'];
+$role = $_SESSION['role'] ?? '';
 
 // 获取考试信息
 $stmt = $pdo->prepare("SELECT * FROM gsk_exams WHERE id = ?");
@@ -34,33 +35,41 @@ if ($exam['type'] !== 'exam') {
     die('此考试不是联考');
 }
 
-// 检查报名状态
-$stmt = $pdo->prepare("SELECT status FROM gsk_exam_signups WHERE exam_id = ? AND user_id = ?");
-$stmt->execute([$exam_id, $user_id]);
-$signup = $stmt->fetch();
-if (!$signup || $signup['status'] !== 'approved') {
-    die('您未通过报名审核，无法参加此联考');
-}
-
-// 时间限制
+// 检查时间和角色
 $now = new DateTime();
 $start = $exam['start_time'] ? new DateTime($exam['start_time']) : null;
 $end = $exam['end_time'] ? new DateTime($exam['end_time']) : null;
+$is_admin = ($role === 'ADMIN' || $role === 'TEACHER');
 
-if ($start && $now < $start) {
-    die('考试尚未开始，请于 ' . $start->format('Y-m-d H:i') . ' 后进入');
-}
-if ($end && $now > $end) {
-    die('考试已结束，不可进入');
-}
-if ($exam['status'] === 'ended') {
-    die('考试已结束（收卷）');
+if (!$is_admin) {
+    if ($start && $now < $start) {
+        die('
+            <!DOCTYPE html>
+            <html><head><meta charset="UTF-8"><title>未到答题时间</title></head>
+            <body style="font-family:sans-serif;padding:2rem;background:#f6f8fa;display:flex;justify-content:center;align-items:center;min-height:100vh;">
+                <div style="max-width:500px;background:#fff;padding:2rem;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.05);text-align:center;">
+                    <h2 style="color:#b91c1c;">⏳ 未到答题时间</h2>
+                    <p style="color:#475569;">联考开始时间为：<strong>' . $start->format('Y-m-d H:i') . '</strong></p>
+                    <p style="color:#94a3b8;">请于该时间后刷新进入。</p>
+                    <p><a href="?page=exam" style="color:#2563eb;text-decoration:none;">← 返回联考列表</a></p>
+                </div>
+            </body></html>
+        ');
+    }
+    if ($end && $now > $end) {
+        die('考试已结束，不可进入');
+    }
+    if ($exam['status'] === 'ended') {
+        die('考试已结束（收卷）');
+    }
 }
 
+// 获取题目
 $stmt = $pdo->prepare("SELECT * FROM gsk_questions WHERE exam_id = ? ORDER BY sort_order, id");
 $stmt->execute([$exam_id]);
 $questions = $stmt->fetchAll();
 
+// 获取已上传的答题卡
 $stmt = $pdo->prepare("SELECT * FROM gsk_exam_submissions WHERE exam_id = ? AND user_id = ? ORDER BY upload_time DESC");
 $stmt->execute([$exam_id, $user_id]);
 $submissions = $stmt->fetchAll();
@@ -98,15 +107,19 @@ $submissions = $stmt->fetchAll();
         .back-link:hover { text-decoration: underline; }
         .print-btn { background: #d4a373; color: #fff; }
         .print-btn:hover { background: #c08d5e; }
+        .admin-badge { background: #facc15; color: #0b3b4c; padding: 0.1rem 0.6rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600; margin-left: 0.5rem; }
     </style>
 </head>
 <body>
 <div class="header">
-    <h1><?= htmlspecialchars($exam['title']) ?></h1>
+    <h1><?= htmlspecialchars($exam['title']) ?>
+        <?php if ($is_admin): ?>
+            <span class="admin-badge">管理员/教师</span>
+        <?php endif; ?>
+    </h1>
     <div class="meta">
         <span><i class="far fa-clock"></i> 开始：<?= $exam['start_time'] ? date('Y-m-d H:i', strtotime($exam['start_time'])) : '未设置' ?></span>
         <span><i class="far fa-clock"></i> 结束：<?= $exam['end_time'] ? date('Y-m-d H:i', strtotime($exam['end_time'])) : '未设置' ?></span>
-        <span><i class="fas fa-user-check"></i> 已报名并通过审核</span>
     </div>
     <p style="color:#64748b; margin-top:0.5rem;"><?= htmlspecialchars($exam['description'] ?? '') ?></p>
 </div>
@@ -164,7 +177,7 @@ $submissions = $stmt->fetchAll();
                 <span><i class="fas fa-file"></i> <?= htmlspecialchars($sub['file_name']) ?></span>
                 <span>
                     <span style="color:#64748b; font-size:0.85rem;"><?= date('Y-m-d H:i', strtotime($sub['upload_time'])) ?></span>
-                    <a href="<?= htmlspecialchars($sub['file_path']) ?>" target="_blank" class="btn btn-secondary btn-sm" style="padding:0.1rem 0.8rem; font-size:0.8rem;">查看</a>
+                    <a href="<?= htmlspecialchars($sub['file_path']) ?>" target="_blank" class="btn btn-secondary" style="padding:0.1rem 0.8rem; font-size:0.8rem;">查看</a>
                 </span>
             </div>
         <?php endforeach; ?>
