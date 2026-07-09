@@ -1,5 +1,5 @@
 <div class="card">
-  <div class="card-title"><i class="fas fa-pencil-alt"></i> 联考报名</div>
+  <div class="card-title"><i class="fas fa-pencil-alt"></i> 联考列表</div>
   <div id="examListContainer">
     <!-- 由 JavaScript 动态渲染 -->
   </div>
@@ -33,27 +33,36 @@
 
         let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1.2rem;margin-top:1rem;">';
         for (const exam of exams) {
-          // 确保 exam.id 存在，若不存在则跳过或使用 exam.exam_id
           const examId = exam.id || exam.exam_id;
-          if (!examId) continue; // 安全跳过
-
-          let signupStatus = null;
-          if (currentUser) {
-            try {
-              const sr = await fetch(`?action=get_signup_status&exam_id=${examId}`);
-              const sd = await sr.json();
-              if (sd.code === 0) signupStatus = sd.data;
-            } catch (e) {}
-          }
-          const hasSigned = signupStatus && signupStatus.has_signed;
-          const statusText = hasSigned ? (signupStatus.status === 'approved' ? '✅ 已通过' : (signupStatus.status === 'rejected' ? '❌ 已拒绝' : '⏳ 审核中')) : '';
+          if (!examId) continue;
 
           const now = new Date();
           const start = exam.start_time ? new Date(exam.start_time) : null;
           const end = exam.end_time ? new Date(exam.end_time) : null;
           
-          const canSignup = exam.status !== 'ended' && (!start || now < start);
-          const canEnter = exam.status !== 'ended' && (!start || now >= start) && (!end || now <= end);
+          // 判断是否可进入（普通用户需要时间范围内，管理员/教师不受限）
+          let canEnter = true;
+          let timeMsg = '';
+          if (!currentUser) {
+            canEnter = false;
+            timeMsg = '请登录';
+          } else {
+            const role = currentUser.role || '';
+            if (role === 'ADMIN' || role === 'TEACHER') {
+              canEnter = true;
+            } else {
+              if (start && now < start) {
+                canEnter = false;
+                timeMsg = '考试未开始';
+              } else if (end && now > end) {
+                canEnter = false;
+                timeMsg = '考试已结束';
+              } else if (exam.status === 'ended') {
+                canEnter = false;
+                timeMsg = '已收卷';
+              }
+            }
+          }
 
           html += `
             <div style="background:#f8fafc;border-radius:10px;padding:1.2rem 1.5rem;border-left:4px solid #d4a373;">
@@ -71,19 +80,10 @@
               </div>
               <div style="margin-top:0.8rem;">
                 ${!currentUser ? 
-                  `<span style="color:#94a3b8;font-size:0.9rem;">请 <a href="?page=account" style="color:#2563eb;text-decoration:underline;">登录</a> 后报名</span>` :
-                  (hasSigned ? 
-                    (signupStatus.status === 'approved' ? 
-                      (canEnter ? 
-                        `<a href="exam_take.php?exam_id=${examId}" class="btn" style="display:inline-block;background:#0b3b4c;color:#fff;padding:0.3rem 1.2rem;border-radius:20px;text-decoration:none;font-size:0.9rem;">进入考试</a>` :
-                        `<span style="color:#b91c1c;font-weight:500;">考试未开始或已结束</span>`
-                      ) :
-                      `<span style="color:#0b6b4c;font-weight:500;">${statusText}</span>`
-                    ) :
-                    (canSignup ? 
-                      `<a href="exam_signup.php?exam_id=${examId}" class="btn" style="display:inline-block;background:#0b3b4c;color:#fff;padding:0.3rem 1.2rem;border-radius:20px;text-decoration:none;font-size:0.9rem;">立即报名</a>` :
-                      `<span style="color:#94a3b8;">报名已截止</span>`
-                    )
+                  `<span style="color:#94a3b8;font-size:0.9rem;">请 <a href="?page=account" style="color:#2563eb;text-decoration:underline;">登录</a> 后查看</span>` :
+                  (canEnter ? 
+                    `<a href="exam_take.php?exam_id=${examId}" class="btn" style="display:inline-block;background:#0b3b4c;color:#fff;padding:0.3rem 1.2rem;border-radius:20px;text-decoration:none;font-size:0.9rem;">进入考试</a>` :
+                    `<span style="color:#b91c1c;font-weight:500;">${timeMsg}</span>`
                   )
                 }
               </div>
