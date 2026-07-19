@@ -1,12 +1,10 @@
 <?php
 require_once "config.php";
 
-// 缓存头
 header("Expires: Thu, 01 Jan 1970 00:00:00 GMT");
 header("Cache-Control: no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
 
-// 登出处理
 if (isset($_GET['logout'])) {
     $_SESSION = array();
     session_unset();
@@ -30,22 +28,18 @@ if ($isLogin && isset($_SESSION['role']) && $_SESSION['role'] == 1) {
     $isTeacher = true;
 }
 
-// 读取公告 修复字段错误
 $noticeSql = "SELECT n.content, t.username, n.create_time FROM notice n LEFT JOIN cho_user t ON n.create_tid = t.id ORDER BY n.create_time DESC LIMIT 3";
 $noticeSt = $pdo->query($noticeSql);
 $noticeList = $noticeSt->fetchAll();
 
-// 联考试卷
 $examStmt = $pdo->prepare("SELECT * FROM paper WHERE paper_type = 1 AND is_publish = 1 ORDER BY create_time DESC");
 $examStmt->execute();
 $examList = $examStmt->fetchAll();
 
-// 周常试卷
 $weekStmt = $pdo->prepare("SELECT * FROM paper WHERE paper_type = 2 AND is_publish = 1 ORDER BY create_time DESC");
 $weekStmt->execute();
 $weekList = $weekStmt->fetchAll();
 
-// 我的答题记录
 $myRecords = array();
 if ($isLogin) {
     $recSql = "SELECT ar.score, ar.comment, ar.submit_time, p.title, p.paper_type
@@ -118,6 +112,20 @@ tailwind.config = {
 body {
     background: #f4f6f8;
     color: #1f2937;
+}
+/* PDF容器修复样式 */
+#pdf-wrap {
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    background: #e5e7eb;
+}
+#pdf-canvas {
+    max-width: 100%;
+    height: auto;
 }
 </style>
 </head>
@@ -448,10 +456,10 @@ body {
     </div>
 </div>
 
-<!-- PDF阅读器弹窗 -->
+<!-- PDF阅读器弹窗【修复滚动/显示不全】 -->
 <div id="pdf-modal" class="fixed inset-0 bg-black/80 z-[200] hidden flex flex-col items-center justify-center p-4">
     <div class="w-full max-w-5xl h-[92vh] flex flex-col bg-white rounded-lg overflow-hidden">
-        <div class="flex items-center justify-between px-4 py-3 border-b border-borderColor">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-borderColor shrink-0">
             <h4 class="font-bold text-sm" id="pdf-title">PDF阅读</h4>
             <div class="flex gap-3 items-center">
                 <button type="button" id="pdf-prev" class="btn btn-outline text-sm">上一页</button>
@@ -460,15 +468,13 @@ body {
                 <button type="button" id="pdf-close" class="btn btn-outline text-sm">关闭</button>
             </div>
         </div>
-        <div class="flex-grow overflow-auto flex items-center justify-center bg-gray-200">
+        <div id="pdf-wrap" class="flex-grow">
             <canvas id="pdf-canvas"></canvas>
         </div>
     </div>
 </div>
 
-<!-- PDF.js 核心库 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
-
 <script>
 const navItems = document.querySelectorAll('.nav-item');
 const pages = document.querySelectorAll('.page');
@@ -527,14 +533,13 @@ document.querySelectorAll('.start-exam-btn').forEach(btn => {
     }
 })
 
-// PDF阅读器逻辑
+// PDF 修复自适应逻辑
 const pdfjsLib = window['pdfjs-dist/build/pdf'];
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
 let pdfDoc = null;
 let pageNum = 1;
 let pageRendering = false;
 let pageNumPending = null;
-const scale = 1.2;
 const canvas = document.getElementById('pdf-canvas');
 const ctx = canvas.getContext('2d');
 const pdfModal = document.getElementById('pdf-modal');
@@ -544,15 +549,24 @@ const totalPageDom = document.getElementById('pdf-total-page');
 const prevBtn = document.getElementById('pdf-prev');
 const nextBtn = document.getElementById('pdf-next');
 const closePdfBtn = document.getElementById('pdf-close');
+const wrap = document.getElementById('pdf-wrap');
+
+// 自动计算缩放，完美适配容器宽度
+function getAutoScale(viewportWidth) {
+    const maxWidth = wrap.clientWidth - 40;
+    return maxWidth / viewportWidth;
+}
 
 function renderPage(num) {
     pageRendering = true;
-    pdfDoc.getPage(num).then(function(page) {
-        const viewport = page.getViewport({scale: scale});
+    pdfDoc.getPage(num).then(page => {
+        const originViewport = page.getViewport({ scale: 1 });
+        const autoScale = getAutoScale(originViewport.width);
+        const viewport = page.getViewport({ scale: autoScale });
         canvas.height = viewport.height;
         canvas.width = viewport.width;
-        const renderTask = page.render({canvasContext: ctx, viewport: viewport});
-        renderTask.promise.then(function() {
+        const renderTask = page.render({ canvasContext: ctx, viewport: viewport });
+        renderTask.promise.then(() => {
             pageRendering = false;
             pageNumDom.textContent = num;
             if(pageNumPending !== null) {
@@ -578,13 +592,14 @@ async function openPdfFile(pdfPath, fileName) {
     pdfModal.classList.remove('hidden');
     pdfTitle.innerText = fileName;
     pageNum = 1;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
     try {
         const loadingTask = pdfjsLib.getDocument(pdfPath);
         pdfDoc = await loadingTask.promise;
         totalPageDom.textContent = pdfDoc.numPages;
         renderPage(pageNum);
     } catch(err) {
-        alert("PDF加载失败，请检查 pdf/vol1.pdf 文件是否上传");
+        alert("PDF加载失败，请检查网站pdf目录下vol1.pdf是否上传");
         pdfModal.classList.add('hidden');
     }
 }
@@ -604,6 +619,10 @@ prevBtn.onclick = prevPage;
 nextBtn.onclick = nextPage;
 closePdfBtn.onclick = closePdfModal;
 pdfModal.onclick = e=>{ if(e.target === pdfModal) closePdfModal(); }
+// 窗口大小变化自动重绘适配
+window.addEventListener('resize', ()=>{
+    if(pdfDoc) queueRenderPage(pageNum);
+})
 </script>
 </body>
 </html>
