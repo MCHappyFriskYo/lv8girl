@@ -43,7 +43,7 @@ $weekStmt = $pdo->prepare("SELECT * FROM paper WHERE paper_type = 2 AND is_publi
 $weekStmt->execute();
 $weekList = $weekStmt->fetchAll();
 
-// 预加载所有试卷对应的题目（解决点击作答空白）
+// 预加载所有试卷对应的题目（解决点击作答空白+图片）
 $allPaperIds = [];
 foreach ($examList as $v) $allPaperIds[] = $v['id'];
 foreach ($weekList as $v) $allPaperIds[] = $v['id'];
@@ -53,6 +53,8 @@ if (!empty($allPaperIds)) {
     $qAllStmt = $pdo->query("SELECT * FROM question WHERE paper_id IN ($inStr) ORDER BY q_no");
     $qAll = $qAllStmt->fetchAll();
     foreach ($qAll as $q) {
+        // 图片路径强制过滤空值
+        $q['img_path'] = trim($q['img_path'] ?? '');
         $paperQuestions[$q['paper_id']][] = $q;
     }
 }
@@ -70,7 +72,7 @@ if ($isLogin) {
     $myRecords = $recStmt->fetchAll();
 }
 
-// 组装试卷JSON，附带题目
+// 组装试卷JSON，附带题目+纯净图片路径
 $allPaperData = [];
 foreach ($examList as $p) {
     $p['questions'] = $paperQuestions[$p['id']] ?? [];
@@ -160,6 +162,12 @@ body {
     border-radius: 6px;
     padding: 12px;
     margin-bottom: 10px;
+}
+.q-img {
+    max-width: 100%;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    margin: 8px 0;
 }
 </style>
 </head>
@@ -468,7 +476,7 @@ body {
     </div>
 </div>
 
-<!-- 答题弹窗【修复：循环渲染多题目，不再空白】 -->
+<!-- 答题弹窗【修复图片渲染】 -->
 <div id="exam-modal" class="fixed inset-0 bg-black/60 z-[110] hidden flex items-center justify-center p-4">
     <div class="plain-card w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div class="flex justify-between items-center mb-4">
@@ -547,24 +555,21 @@ const examContentWrap = document.getElementById('exam-content');
 function openExamModal(pid, title, questionList) {
     document.getElementById('current_pid').value = pid;
     document.getElementById('exam-title').innerText = title;
-    // 清空旧内容
     examContentWrap.innerHTML = '';
-    // 题型映射
     const typeMap = {
         1: '填空题',
         2: '主观问答',
         3: '计算题',
         4: '简答题'
     };
-    // 循环渲染每一道题目
     if(questionList && questionList.length > 0){
         questionList.forEach(q=>{
             let html = `<div class="question-item">
-                <div class="font-bold mb-1">${q.q_no} 【${typeMap[q.q_type]}】（${q.score}分）</div>
-                <div class="mb-2 whitespace-pre-wrap">${q.content}</div>`;
-            // 如果有图片
-            if(q.img_path){
-                html += `<img src="${q.img_path}" class="max-w-full border rounded mb-2">`;
+                <div class="font-bold mb-1">${escapeHtml(q.q_no)} 【${typeMap[q.q_type]}】（${q.score}分）</div>
+                <div class="mb-2 whitespace-pre-wrap">${escapeHtml(q.content)}</div>`;
+            // 图片渲染修复
+            if(q.img_path && q.img_path !== ''){
+                html += `<img src="${escapeHtml(q.img_path)}" class="q-img" alt="题目配图" onerror="this.style.display='none'">`;
             }
             html += `</div>`;
             examContentWrap.innerHTML += html;
@@ -574,10 +579,18 @@ function openExamModal(pid, title, questionList) {
     }
     examModal.classList.remove('hidden');
 }
+// HTML转义防止路径断裂
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;')
+              .replace(/</g,'&lt;')
+              .replace(/>/g,'&gt;')
+              .replace(/"/g,'&quot;')
+              .replace(/'/g,'&#039;');
+}
 function closeExamModal() { examModal.classList.add('hidden'); }
 examModal.onclick = e => { if (e.target === examModal) closeExamModal(); }
 const isLogin = <?php echo $isLogin ? 'true' : 'false'; ?>;
-// 完整试卷数据（包含题目数组）
 const paperData = <?php echo json_encode($allPaperData); ?>;
 document.querySelectorAll('.start-exam-btn').forEach(btn => {
     btn.onclick = () => {
