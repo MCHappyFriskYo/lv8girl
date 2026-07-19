@@ -1,13 +1,12 @@
 <?php
-error_reporting(E_ALL);
-ini_set('display_errors', 0);
 session_start();
 
-// 数据库配置，上传服务器务必修改为你服务器真实数据库信息
+// ========== 此处改成你服务器真实数据库信息 ==========
 $host = 'lv8girl-db';
 $dbname = 'lv8girl';
 $db_user = 'lv8girl';
 $db_pass = 'yourpasswd';
+// =====================================================
 
 try {
     $pdo = new PDO(
@@ -24,14 +23,18 @@ try {
     die("数据库连接失败：" . $e->getMessage());
 }
 
-// 判断当前登录用户是否为教师角色
-function isTeacherLogin(){
-    if(!isset($_SESSION['uid'])) return false;
+// 判断教师权限函数
+function isTeacherLogin()
+{
+    if (!isset($_SESSION['uid'])) {
+        return false;
+    }
     global $pdo;
     $uid = $_SESSION['uid'];
-    $st = $pdo->prepare("SELECT role FROM cho_user WHERE id = ?");
-    $st->execute([$uid]);
-    $row = $st->fetch();
+    $sql = "SELECT role FROM cho_user WHERE id = ? LIMIT 1";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$uid]);
+    $row = $stmt->fetch();
     return $row && $row['role'] == 1;
 }
 ?>
