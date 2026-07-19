@@ -4,7 +4,7 @@ header("Expires: Thu, 01 Jan 1970 00:00:00 GMT");
 header("Cache-Control: no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
 
-// 权限拦截：未登录/学生直接跳转首页
+// 教师权限拦截
 if (!isset($_SESSION['uid']) || !isTeacherLogin()) {
     $_SESSION['msg'] = "无教师访问权限，请用教师账号登录首页后再进入后台";
     header("Location: index.php");
@@ -28,18 +28,29 @@ if (isset($_POST['save_notice'])) {
     }
 }
 
-// 2、AJAX上传题目图片
+// 2、AJAX上传题目图片【重写修复mime识别、容错、返回清晰提示】
 if (isset($_FILES['qimg']) && $_FILES['qimg']['error'] === 0) {
+    // 前端限制5MB
+    if ($_FILES['qimg']['size'] > 5 * 1024 * 1024) {
+        echo json_encode(['code' => 0, 'msg' => '图片不能超过5MB']);
+        exit;
+    }
+    // 兼容fileinfo扩展，替代废弃mime_content_type
+    $finfo = new Finfo(FILEINFO_MIME_TYPE);
+    $mime = $finfo->file($_FILES['qimg']['tmp_name']);
     $allowMime = ['image/jpeg','image/jpg','image/png','image/gif'];
-    $mime = mime_content_type($_FILES['qimg']['tmp_name']);
     if (!in_array($mime, $allowMime)) {
-        echo json_encode(['code'=>0,'msg'=>'仅支持jpg/png/gif图片']);exit;
+        echo json_encode(['code' => 0, 'msg' => '仅支持jpg/png/gif图片']);
+        exit;
     }
     $ext = pathinfo($_FILES['qimg']['name'], PATHINFO_EXTENSION);
-    $saveName = md5(time().rand(1000,9999)).".".$ext;
+    $saveName = md5(time() . rand(1000, 9999)) . "." . $ext;
     $savePath = $uploadBase . $saveName;
-    move_uploaded_file($_FILES['qimg']['tmp_name'], $savePath);
-    echo json_encode(['code'=>1,'path'=>$savePath]);
+    if (move_uploaded_file($_FILES['qimg']['tmp_name'], $savePath)) {
+        echo json_encode(['code' => 1, 'path' => $savePath]);
+    } else {
+        echo json_encode(['code' => 0, 'msg' => '文件夹写入失败，请设置upload/question权限755']);
+    }
     exit;
 }
 
@@ -63,18 +74,14 @@ if (isset($_POST['save_full_paper'])) {
     } else {
         $totalScore = array_sum($qScores);
         if ($pid > 0) {
-            // 更新旧试卷
             $upPaper = $pdo->prepare("UPDATE paper SET title=?,paper_type=?,time_limit=?,full_score=?,is_publish=? WHERE id=? AND create_tid=?");
             $upPaper->execute([$title, $paperType, $timeLimit, $totalScore, $isPublish, $pid, $tid]);
-            // 删除原有所有题目
             $pdo->prepare("DELETE FROM question WHERE paper_id=?")->execute([$pid]);
         } else {
-            // 新建试卷
             $addPaper = $pdo->prepare("INSERT INTO paper(title,paper_type,time_limit,full_score,is_publish,create_tid) VALUES (?,?,?,?,?,?)");
             $addPaper->execute([$title, $paperType, $timeLimit, $totalScore, $isPublish, $tid]);
             $pid = $pdo->lastInsertId();
         }
-        // 批量插入题目
         $insertQuestion = $pdo->prepare("INSERT INTO question(paper_id,q_no,q_type,score,content,img_path,answer) VALUES (?,?,?,?,?,?,?)");
         for ($i = 0; $i < count($qNos); $i++) {
             $insertQuestion->execute([
@@ -87,7 +94,7 @@ if (isset($_POST['save_full_paper'])) {
                 trim($qAnswers[$i])
             ]);
         }
-        $msg = "试卷保存成功，总分：".$totalScore."分";
+        $msg = "试卷保存成功，总分：" . $totalScore . "分";
     }
 }
 
@@ -131,7 +138,6 @@ if (isset($_GET['view']) && is_numeric($_GET['view'])) {
     $paperInfo = $checkPaper->fetch();
     if ($paperInfo) {
         $viewPaperTitle = $paperInfo['title'];
-        // 查询所有学生提交记录
         $recStmt = $pdo->prepare("
             SELECT ar.id,ar.stu_answer,ar.score,ar.comment,ar.submit_time,u.username
             FROM answer_record ar
@@ -306,11 +312,11 @@ tailwind.config = {
                             <textarea name="q_content[]" rows="3" required class="w-full border rounded p-2"><?php echo htmlspecialchars($q['content']); ?></textarea>
                         </div>
                         <div class="mb-3">
-                            <label class="text-sm">题目配图（选填）</label>
+                            <label class="text-sm">题目配图（选填，≤5MB）</label>
                             <input type="hidden" name="q_img[]" value="<?php echo htmlspecialchars($q['img_path']); ?>" class="imgInput">
                             <div class="flex gap-3 items-center mt-1">
-                                <input type="file" class="uploadImg" accept="image/*">
-                                <span class="text-xs text-textSub">上传图片自动填充路径</span>
+                                <input type="file" class="uploadImg" accept="image/jpeg,image/jpg,image/png,image/gif">
+                                <span class="text-xs text-textSub">选择图片自动上传填充</span>
                                 <?php if (!empty($q['img_path'])): ?>
                                     <img src="<?php echo $q['img_path']; ?>" class="h-16 border">
                                 <?php endif; ?>
@@ -443,11 +449,11 @@ function addQuestionBlock() {
             <textarea name="q_content[]" rows="3" required class="w-full border rounded p-2" placeholder="输入题干"></textarea>
         </div>
         <div class="mb-3">
-            <label class="text-sm">题目配图（选填）</label>
+            <label class="text-sm">题目配图（选填，≤5MB）</label>
             <input type="hidden" name="q_img[]" value="" class="imgInput">
             <div class="flex gap-3 items-center mt-1">
-                <input type="file" class="uploadImg" accept="image/*">
-                <span class="text-xs text-textSub">点击上传图片自动填充</span>
+                <input type="file" class="uploadImg" accept="image/jpeg,image/jpg,image/png,image/gif">
+                <span class="text-xs text-textSub">选择图片自动上传填充</span>
             </div>
         </div>
         <div>
@@ -463,22 +469,47 @@ function addQuestionBlock() {
 function delBlock(btn) {
     btn.closest('.question-block').remove();
 }
-// AJAX图片上传绑定
+// AJAX图片上传绑定【修复fetch配置，上传必有响应】
 function bindUpload() {
     const uploadInputs = document.querySelectorAll('.uploadImg');
     uploadInputs.forEach(input => {
         input.onchange = async function () {
             const file = this.files[0];
             if (!file) return;
+            // 前端大小校验5MB
+            if (file.size > 5 * 1024 * 1024) {
+                alert('图片不能超过5MB');
+                this.value = '';
+                return;
+            }
             const formData = new FormData();
             formData.append('qimg', file);
-            const res = await fetch('admin.php', { method: 'POST', body: formData });
-            const data = await res.json();
-            if (data.code === 1) {
-                this.parentElement.querySelector('.imgInput').value = data.path;
-                alert('图片上传成功');
-            } else {
-                alert(data.msg);
+            try {
+                // 关键修复：fetch增加跨域/缓存配置
+                const res = await fetch('admin.php', {
+                    method: 'POST',
+                    cache: 'no-cache',
+                    credentials: 'same-origin',
+                    body: formData
+                });
+                const data = await res.json();
+                if (data.code === 1) {
+                    this.parentElement.querySelector('.imgInput').value = data.path;
+                    alert('图片上传成功！');
+                    // 回显图片
+                    let imgDom = this.parentElement.querySelector('img');
+                    if (!imgDom) {
+                        imgDom = document.createElement('img');
+                        imgDom.className = 'h-16 border';
+                        this.parentElement.appendChild(imgDom);
+                    }
+                    imgDom.src = data.path;
+                } else {
+                    alert(data.msg);
+                }
+            } catch (err) {
+                alert('上传请求失败：网络/服务器权限异常');
+                console.error(err);
             }
         }
     })
