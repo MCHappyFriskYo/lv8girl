@@ -4,7 +4,7 @@ header("Expires: Thu, 01 Jan 1970 00:00:00 GMT");
 header("Cache-Control: no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
 
-// 权限拦截
+// 权限拦截：未登录/学生直接跳转首页
 if (!isset($_SESSION['uid']) || !isTeacherLogin()) {
     $_SESSION['msg'] = "无教师访问权限，请用教师账号登录首页后再进入后台";
     header("Location: index.php");
@@ -28,28 +28,29 @@ if (isset($_POST['save_notice'])) {
     }
 }
 
-// 2、上传题目图片
+// 2、AJAX上传题目图片
 if (isset($_FILES['qimg']) && $_FILES['qimg']['error'] === 0) {
-    $allow = ['image/jpeg','image/jpg','image/png','image/gif'];
+    $allowMime = ['image/jpeg','image/jpg','image/png','image/gif'];
     $mime = mime_content_type($_FILES['qimg']['tmp_name']);
-    if (!in_array($mime, $allow)) {
+    if (!in_array($mime, $allowMime)) {
         echo json_encode(['code'=>0,'msg'=>'仅支持jpg/png/gif图片']);exit;
     }
     $ext = pathinfo($_FILES['qimg']['name'], PATHINFO_EXTENSION);
     $saveName = md5(time().rand(1000,9999)).".".$ext;
-    $savePath = $uploadBase.$saveName;
+    $savePath = $uploadBase . $saveName;
     move_uploaded_file($_FILES['qimg']['tmp_name'], $savePath);
     echo json_encode(['code'=>1,'path'=>$savePath]);
     exit;
 }
 
-// 3、保存整套试卷+多道题目
+// 3、保存整套试卷（修复is_publish丢失、总分自动计算）
 if (isset($_POST['save_full_paper'])) {
     $pid = isset($_POST['pid']) ? intval($_POST['pid']) : 0;
     $title = trim($_POST['title']);
-    $type = intval($_POST['paper_type']);
+    $paperType = intval($_POST['paper_type']);
     $timeLimit = intval($_POST['time_limit']);
-    $publish = isset($_POST['is_publish']) ? 1 : 0;
+    $isPublish = isset($_POST['is_publish']) ? 1 : 0;
+
     $qNos = $_POST['q_no'] ?? [];
     $qTypes = $_POST['q_type'] ?? [];
     $qScores = $_POST['q_score'] ?? [];
@@ -62,21 +63,21 @@ if (isset($_POST['save_full_paper'])) {
     } else {
         $totalScore = array_sum($qScores);
         if ($pid > 0) {
-            // 更新试卷主表
+            // 更新旧试卷
             $upPaper = $pdo->prepare("UPDATE paper SET title=?,paper_type=?,time_limit=?,full_score=?,is_publish=? WHERE id=? AND create_tid=?");
-            $upPaper->execute([$title, $type, $timeLimit, $totalScore, $publish, $pid, $tid]);
-            // 删除旧题目
+            $upPaper->execute([$title, $paperType, $timeLimit, $totalScore, $isPublish, $pid, $tid]);
+            // 删除原有所有题目
             $pdo->prepare("DELETE FROM question WHERE paper_id=?")->execute([$pid]);
         } else {
             // 新建试卷
             $addPaper = $pdo->prepare("INSERT INTO paper(title,paper_type,time_limit,full_score,is_publish,create_tid) VALUES (?,?,?,?,?,?)");
-            $addPaper->execute([$title, $type, $timeLimit, $totalScore, $publishing, $tid]);
+            $addPaper->execute([$title, $paperType, $timeLimit, $totalScore, $isPublish, $tid]);
             $pid = $pdo->lastInsertId();
         }
         // 批量插入题目
-        $insertQ = $pdo->prepare("INSERT INTO question(paper_id,q_no,q_type,score,content,img_path,answer) VALUES (?,?,?,?,?,?,?)");
-        for ($i=0;$i<count($qNos);$i++) {
-            $insertQ->execute([
+        $insertQuestion = $pdo->prepare("INSERT INTO question(paper_id,q_no,q_type,score,content,img_path,answer) VALUES (?,?,?,?,?,?,?)");
+        for ($i = 0; $i < count($qNos); $i++) {
+            $insertQuestion->execute([
                 $pid,
                 trim($qNos[$i]),
                 intval($qTypes[$i]),
@@ -95,12 +96,12 @@ if (isset($_POST['score_submit'])) {
     $arid = intval($_POST['arid']);
     $score = trim($_POST['score']) === '' ? null : intval($_POST['score']);
     $comment = trim($_POST['comment']);
-    $up = $pdo->prepare("UPDATE answer_record SET score=?,comment=? WHERE id=?");
-    $up->execute([$score, $comment, $arid]);
+    $upRec = $pdo->prepare("UPDATE answer_record SET score=?,comment=? WHERE id=?");
+    $upRec->execute([$score, $comment, $arid]);
     $msg = "批改保存成功";
 }
 
-// 获取教师所有试卷
+// 获取当前教师全部试卷
 $paperListStmt = $pdo->prepare("SELECT * FROM paper WHERE create_tid=? ORDER BY create_time DESC");
 $paperListStmt->execute([$tid]);
 $myPaper = $paperListStmt->fetchAll();
@@ -110,9 +111,9 @@ $editPaper = null;
 $editQuestions = [];
 if (isset($_GET['edit'])) {
     $eid = intval($_GET['edit']);
-    $eStmt = $pdo->prepare("SELECT * FROM paper WHERE id=? AND create_tid=?");
-    $eStmt->execute([$eid, $tid]);
-    $editPaper = $eStmt->fetch();
+    $ePaperStmt = $pdo->prepare("SELECT * FROM paper WHERE id=? AND create_tid=? LIMIT 1");
+    $ePaperStmt->execute([$eid, $tid]);
+    $editPaper = $ePaperStmt->fetch();
     if ($editPaper) {
         $qStmt = $pdo->prepare("SELECT * FROM question WHERE paper_id=? ORDER BY q_no");
         $qStmt->execute([$eid]);
@@ -120,25 +121,28 @@ if (isset($_GET['edit'])) {
     }
 }
 
-// 查看试卷作答
+// 查看试卷对应的学生作答（修复看不到作答、权限校验）
 $viewRecList = [];
 $viewPaperTitle = '';
-if (isset($_GET['view'])) {
+if (isset($_GET['view']) && is_numeric($_GET['view'])) {
     $vid = intval($_GET['view']);
-    $vPaper = $pdo->prepare("SELECT title FROM paper WHERE id=? AND create_tid=?");
-    $vPaper->execute([$vid, $tid]);
-    $pInfo = $vPaper->fetch();
-    if ($pInfo) {
-        $viewPaperTitle = $pInfo['title'];
+    $checkPaper = $pdo->prepare("SELECT title FROM paper WHERE id=? AND create_tid=? LIMIT 1");
+    $checkPaper->execute([$vid, $tid]);
+    $paperInfo = $checkPaper->fetch();
+    if ($paperInfo) {
+        $viewPaperTitle = $paperInfo['title'];
+        // 查询所有学生提交记录
         $recStmt = $pdo->prepare("
             SELECT ar.id,ar.stu_answer,ar.score,ar.comment,ar.submit_time,u.username
             FROM answer_record ar
-            LEFT JOIN cho_user u ON ar.uid=u.id
-            WHERE ar.paper_id=?
+            LEFT JOIN cho_user u ON ar.uid = u.id
+            WHERE ar.paper_id = ?
             ORDER BY ar.submit_time DESC
         ");
         $recStmt->execute([$vid]);
         $viewRecList = $recStmt->fetchAll();
+    } else {
+        $msg = "该试卷不属于你，无访问权限";
     }
 }
 ?>
@@ -164,40 +168,68 @@ tailwind.config = {
 }
 </script>
 <style>
-.card{background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:20px;box-shadow:0 1px 3px #eee;}
-.btn{padding:8px 14px;border-radius:6px;font-size:14px;cursor:pointer}
-.btn-primary{background:#0d9488;color:#fff;border:0}
-.btn-gray{background:#eee;border:0}
-.btn-red{background:#ef4444;color:#fff;border:0}
-.question-block{border:1px dashed #ccc;padding:16px;border-radius:6px;margin-bottom:12px}
+.card {
+    background: #fff;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 1px 3px #eee;
+}
+.btn {
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    border: 0;
+}
+.btn-primary {
+    background: #0d9488;
+    color: #fff;
+}
+.btn-gray {
+    background: #eee;
+}
+.btn-red {
+    background: #ef4444;
+    color: #fff;
+}
+.question-block {
+    border: 1px dashed #cccccc;
+    padding: 16px;
+    border-radius: 6px;
+    margin-bottom: 12px;
+}
 </style>
 </head>
 <body class="bg-gray-100 min-h-screen p-4 md:p-8">
 <div class="max-w-7xl mx-auto">
+    <!-- 头部导航 -->
     <div class="flex justify-between items-center mb-6">
         <div>
             <h1 class="text-2xl font-bold">教师管理后台</h1>
-            <p class="text-textSub">登录账号：<?php echo htmlspecialchars($tname); ?></p>
+            <p class="text-textSub">当前登录账号：<?php echo htmlspecialchars($tname); ?></p>
         </div>
         <div class="flex gap-3">
             <a href="index.php" class="btn btn-gray">返回首页</a>
-            <a href="?logout=1" class="btn btn-gray">退出登录</a>
+            <a href="index.php?logout=1" class="btn btn-gray">退出登录</a>
         </div>
     </div>
 
+    <!-- 提示消息 -->
     <?php if (!empty($msg)): ?>
-    <div class="mb-4 p-3 rounded <?=str_contains($msg,'成功')?'bg-green-100 text-green-700':'bg-red-100 text-red-700'?>">
+    <div class="mb-4 p-3 rounded <?php echo str_contains($msg, '成功') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'; ?>">
         <?php echo htmlspecialchars($msg); ?>
     </div>
     <?php endif; ?>
 
+    <!-- 标签切换 -->
     <div class="flex gap-2 mb-6 border-b border-borderColor pb-2">
         <a href="#notice" class="px-3 py-2 hover:text-primary">发布公告</a>
         <a href="#paper_add" class="px-3 py-2 hover:text-primary"><?php echo $editPaper ? '编辑整套试卷' : '新建整套试卷'; ?></a>
         <a href="#paper_list" class="px-3 py-2 hover:text-primary">我的全部试卷</a>
     </div>
 
-    <!-- 1、发布公告 -->
+    <!-- 1、发布公告区域 -->
     <section id="notice" class="card mb-6">
         <h2 class="text-lg font-semibold mb-4">发布平台公告</h2>
         <form method="post">
@@ -208,7 +240,9 @@ tailwind.config = {
 
     <!-- 2、新建/编辑试卷（多题目动态表单） -->
     <section id="paper_add" class="card mb-6">
-        <h2 class="text-lg font-semibold mb-4"><?php echo $editPaper ? '编辑已有试卷（可修改所有题目）' : '创建新试卷（支持多题型+图片）'; ?></h2>
+        <h2 class="text-lg font-semibold mb-4">
+            <?php echo $editPaper ? '编辑已有试卷（可修改所有题目）' : '创建新试卷（支持多题型+图片上传）'; ?>
+        </h2>
         <form method="post" id="paperForm">
             <?php if ($editPaper): ?>
                 <input type="hidden" name="pid" value="<?php echo $editPaper['id']; ?>">
@@ -222,8 +256,8 @@ tailwind.config = {
                 <div>
                     <label class="block text-sm mb-1 font-medium">试卷分类</label>
                     <select name="paper_type" class="w-full border border-borderColor rounded p-2">
-                        <option value="1" <?php echo ($editPaper && $editPaper['paper_type']==1) ? 'selected' : ''; ?>>联考大考</option>
-                        <option value="2" <?php echo ($editPaper && $editPaper['paper_type']==2) ? 'selected' : ''; ?>>周常小测</option>
+                        <option value="1" <?php echo ($editPaper && $editPaper['paper_type'] == 1) ? 'selected' : ''; ?>>联考大考</option>
+                        <option value="2" <?php echo ($editPaper && $editPaper['paper_type'] == 2) ? 'selected' : ''; ?>>周常小测</option>
                     </select>
                 </div>
                 <div>
@@ -234,12 +268,12 @@ tailwind.config = {
             <div class="mb-6">
                 <label class="inline-flex items-center gap-2">
                     <input type="checkbox" name="is_publish" <?php echo ($editPaper && $editPaper['is_publish']) ? 'checked' : ''; ?>>
-                    立即发布（勾选学生可见，不勾选仅草稿）
+                    立即发布（勾选后学生首页可见，不勾选仅保存草稿）
                 </label>
             </div>
 
             <hr class="my-6 border-borderColor">
-            <h3 class="font-bold text-lg mb-4">题目列表（可自定义题号、上传配图、多题型）</h3>
+            <h3 class="font-bold text-lg mb-4">题目列表（自定义题号、配图、多题型）</h3>
             <div id="questionWrap">
                 <?php if (!empty($editQuestions)): ?>
                     <?php foreach ($editQuestions as $q): ?>
@@ -256,10 +290,10 @@ tailwind.config = {
                             <div>
                                 <label class="text-sm">题型</label>
                                 <select name="q_type[]" class="w-full border rounded p-2">
-                                    <option value="1" <?php echo $q['q_type']==1?'selected':''; ?>>填空题</option>
-                                    <option value="2" <?php echo $q['q_type']==2?'selected':''; ?>>主观问答</option>
-                                    <option value="3" <?php echo $q['q_type']==3?'selected':''; ?>>计算题</option>
-                                    <option value="4" <?php echo $q['q_type']==4?'selected':''; ?>>简答题</option>
+                                    <option value="1" <?php echo $q['q_type'] == 1 ? 'selected' : ''; ?>>填空题</option>
+                                    <option value="2" <?php echo $q['q_type'] == 2 ? 'selected' : ''; ?>>主观问答</option>
+                                    <option value="3" <?php echo $q['q_type'] == 3 ? 'selected' : ''; ?>>计算题</option>
+                                    <option value="4" <?php echo $q['q_type'] == 4 ? 'selected' : ''; ?>>简答题</option>
                                 </select>
                             </div>
                             <div>
@@ -276,14 +310,14 @@ tailwind.config = {
                             <input type="hidden" name="q_img[]" value="<?php echo htmlspecialchars($q['img_path']); ?>" class="imgInput">
                             <div class="flex gap-3 items-center mt-1">
                                 <input type="file" class="uploadImg" accept="image/*">
-                                <span class="text-xs text-textSub">点击上传图片自动填充</span>
+                                <span class="text-xs text-textSub">上传图片自动填充路径</span>
                                 <?php if (!empty($q['img_path'])): ?>
                                     <img src="<?php echo $q['img_path']; ?>" class="h-16 border">
                                 <?php endif; ?>
                             </div>
                         </div>
                         <div>
-                            <label class="text-sm">本题参考答案（教师后台可见）</label>
+                            <label class="text-sm">本题参考答案（仅教师后台可见）</label>
                             <textarea name="q_answer[]" rows="2" class="w-full border rounded p-2"><?php echo htmlspecialchars($q['answer']); ?></textarea>
                         </div>
                     </div>
@@ -293,7 +327,7 @@ tailwind.config = {
             <button type="button" onclick="addQuestionBlock()" class="btn btn-gray mb-4">+ 添加一道新题目</button>
             <hr class="my-6 border-borderColor">
             <div class="flex gap-3">
-                <button name="save_full_paper" type="submit" class="btn btn-primary">保存整套试卷（自动计算总分）</button>
+                <button name="save_full_paper" type="submit" class="btn btn-primary">保存整套试卷（自动汇总总分）</button>
                 <?php if ($editPaper): ?>
                     <a href="admin.php#paper_add" class="btn btn-gray">取消编辑</a>
                 <?php endif; ?>
@@ -305,16 +339,16 @@ tailwind.config = {
     <section id="paper_list" class="card mb-6">
         <h2 class="text-lg font-semibold mb-4">我创建的全部试卷</h2>
         <?php if (empty($myPaper)): ?>
-            <p class="text-textSub">暂无创建任何试卷</p>
+            <p class="text-textSub">你还没有创建任何试卷</p>
         <?php else: ?>
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
                 <thead class="bg-gray-50">
                     <tr>
                         <th class="p-3 text-left">试卷名称</th>
-                        <th class="p-3 text-left">类型</th>
+                        <th class="p-3 text-left">分类</th>
                         <th class="p-3 text-left">总分</th>
-                        <th class="p-3 text-left">状态</th>
+                        <th class="p-3 text-left">发布状态</th>
                         <th class="p-3 text-left">操作</th>
                     </tr>
                 </thead>
@@ -322,9 +356,15 @@ tailwind.config = {
                 <?php foreach ($myPaper as $p): ?>
                 <tr class="border-t border-borderColor">
                     <td class="p-3"><?php echo htmlspecialchars($p['title']); ?></td>
-                    <td class="p-3"><?php echo $p['paper_type']==1 ? '联考' : '周常'; ?></td>
+                    <td class="p-3"><?php echo $p['paper_type'] == 1 ? '联考' : '周常'; ?></td>
                     <td class="p-3"><?php echo $p['full_score']; ?> 分</td>
-                    <td class="p-3"><?php echo $p['is_publish'] ? '<span class="text-green-600">已发布</span>' : '<span class="text-orange-500">草稿</span>'; ?></td>
+                    <td class="p-3">
+                        <?php if ($p['is_publish'] == 1): ?>
+                            <span class="text-green-600">已发布</span>
+                        <?php else: ?>
+                            <span class="text-orange-500">草稿</span>
+                        <?php endif; ?>
+                    </td>
                     <td class="p-3 flex gap-2">
                         <a href="?edit=<?php echo $p['id']; ?>#paper_add" class="btn btn-gray text-xs">编辑整套</a>
                         <a href="?view=<?php echo $p['id']; ?>#record_view" class="btn btn-primary text-xs">查看学生作答</a>
@@ -333,14 +373,13 @@ tailwind.config = {
                 <?php endforeach; ?>
                 </tbody>
             </table>
-        </div>
         <?php endif; ?>
     </section>
 
-    <!-- 4、学生作答批改 -->
+    <!-- 4、学生作答批改区域 -->
     <?php if (isset($_GET['view']) && !empty($viewRecList)): ?>
     <section id="record_view" class="card">
-        <h2 class="text-lg font-semibold mb-4">作答列表 - <?php echo htmlspecialchars($viewPaperTitle); ?></h2>
+        <h2 class="text-lg font-semibold mb-4">学生作答列表 - <?php echo htmlspecialchars($viewPaperTitle); ?></h2>
         <?php foreach ($viewRecList as $rec): ?>
         <div class="border border-borderColor rounded p-4 mb-4">
             <div class="flex justify-between mb-2">
@@ -372,7 +411,7 @@ tailwind.config = {
 
 <script>
 // 动态新增题目区块
-function addQuestionBlock(){
+function addQuestionBlock() {
     const wrap = document.getElementById('questionWrap');
     const html = `
     <div class="question-block">
@@ -421,24 +460,24 @@ function addQuestionBlock(){
     bindUpload();
 }
 // 删除题目区块
-function delBlock(btn){
+function delBlock(btn) {
     btn.closest('.question-block').remove();
 }
-// 图片上传AJAX绑定
-function bindUpload(){
+// AJAX图片上传绑定
+function bindUpload() {
     const uploadInputs = document.querySelectorAll('.uploadImg');
-    uploadInputs.forEach(input=>{
-        input.onchange = async function(){
+    uploadInputs.forEach(input => {
+        input.onchange = async function () {
             const file = this.files[0];
-            if(!file) return;
+            if (!file) return;
             const formData = new FormData();
             formData.append('qimg', file);
-            const res = await fetch('admin.php', {method:'POST',body:formData});
+            const res = await fetch('admin.php', { method: 'POST', body: formData });
             const data = await res.json();
-            if(data.code === 1){
+            if (data.code === 1) {
                 this.parentElement.querySelector('.imgInput').value = data.path;
                 alert('图片上传成功');
-            }else{
+            } else {
                 alert(data.msg);
             }
         }
