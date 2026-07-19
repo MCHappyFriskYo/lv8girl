@@ -33,23 +33,22 @@ $noticeSql = "SELECT n.content, t.username, n.create_time FROM notice n LEFT JOI
 $noticeSt = $pdo->query($noticeSql);
 $noticeList = $noticeSt->fetchAll();
 
-// 已发布联考 paper_type=1 已发布is_publish=1
+// 已发布联考 paper_type=1 仅基础信息，不再读取题目
 $examStmt = $pdo->prepare("SELECT * FROM paper WHERE paper_type = 1 AND is_publish = 1 ORDER BY create_time DESC");
 $examStmt->execute();
 $examList = $examStmt->fetchAll();
 
-// 已发布周常 paper_type=2 已发布is_publish=1
+// 已发布周常 paper_type=2 保留多题目作答逻辑
 $weekStmt = $pdo->prepare("SELECT * FROM paper WHERE paper_type = 2 AND is_publish = 1 ORDER BY create_time DESC");
 $weekStmt->execute();
 $weekList = $weekStmt->fetchAll();
 
-// 预加载所有试卷对应的题目（解决点击作答空白+图片）
-$allPaperIds = [];
-foreach ($examList as $v) $allPaperIds[] = $v['id'];
-foreach ($weekList as $v) $allPaperIds[] = $v['id'];
+// 预加载周常试卷题目（联考不用题目）
+$allWeekPaperIds = [];
+foreach ($weekList as $v) $allWeekPaperIds[] = $v['id'];
 $paperQuestions = [];
-if (!empty($allPaperIds)) {
-    $inStr = implode(',', array_map('intval', $allPaperIds));
+if (!empty($allWeekPaperIds)) {
+    $inStr = implode(',', array_map('intval', $allWeekPaperIds));
     $qAllStmt = $pdo->query("SELECT * FROM question WHERE paper_id IN ($inStr) ORDER BY q_no");
     $qAll = $qAllStmt->fetchAll();
     foreach ($qAll as $q) {
@@ -58,10 +57,10 @@ if (!empty($allPaperIds)) {
     }
 }
 
-// 我的答题记录（带分数、评语）
+// 答题/答题卡提交记录
 $myRecords = array();
 if ($isLogin) {
-    $recSql = "SELECT ar.score, ar.comment, ar.submit_time, p.title, p.paper_type, p.id as paper_id
+    $recSql = "SELECT ar.score, ar.comment, ar.submit_time, p.title, p.paper_type, p.id as paper_id, ar.card_img
     FROM answer_record ar
     LEFT JOIN paper p ON ar.paper_id = p.id
     WHERE ar.uid = ?
@@ -71,18 +70,14 @@ if ($isLogin) {
     $myRecords = $recStmt->fetchAll();
 }
 
-// 组装试卷JSON，附带题目+纯净图片路径
-$allPaperData = [];
-foreach ($examList as $p) {
-    $p['questions'] = $paperQuestions[$p['id']] ?? [];
-    $allPaperData[] = $p;
-}
+// 组装周常试卷JSON（仅周常有题目）
+$allWeekPaperData = [];
 foreach ($weekList as $p) {
     $p['questions'] = $paperQuestions[$p['id']] ?? [];
-    $allPaperData[] = $p;
+    $allWeekPaperData[] = $p;
 }
 
-// 按试卷ID分组学生答题记录，方便页面匹配展示
+// 按试卷ID分组记录
 $groupRecords = [];
 foreach ($myRecords as $item) {
     $pid = $item['paper_id'];
@@ -133,6 +128,14 @@ tailwind.config = {
 }
 .btn-outline {
     border: 1px solid #d1d5db;
+}
+.btn-blue {
+    background: #0ea5e9;
+    color: white;
+}
+.btn-orange {
+    background: #f97316;
+    color: white;
 }
 .nav-link-active {
     border-bottom: 2px solid #0d9488;
@@ -185,6 +188,19 @@ body {
 .record-pending {
     border-left:4px solid #f59e0b;
     background:#fffbeb;
+}
+.download-row {
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    align-items:center;
+    margin-top:10px;
+}
+.upload-card-form {
+    margin-top:12px;
+    padding:12px;
+    background:#fef3f2;
+    border-radius:6px;
 }
 </style>
 </head>
@@ -260,19 +276,19 @@ body {
         <div class="plain-card mb-8">
             <h2 class="text-lg font-semibold mb-3">平台说明</h2>
             <p class="text-sm text-[#6b7280] mb-4">
-                这里主要用于化学竞赛日常训练、联考模拟和社团刊物发布。
-                你可以在这里参加限时小测、完成标准化模考，以及阅读《燕石博物志》。
+                联考：下载试卷、打印答题卡，手写完成后上传答题卡图片等待批改；
+                周常：在线直接作答系统题目，提交等待批改。
             </p>
             <div class="grid md:grid-cols-3 gap-4">
                 <div class="p-4 bg-gray-50 rounded border border-[#d1d5db] cursor-pointer" onclick="switchPage('exam')">
                     <i class="fa fa-file-text-o text-[#0d9488] mb-2"></i>
                     <h3 class="font-medium">联考</h3>
-                    <p class="text-xs text-[#6b7280]">标准化模考与真题训练</p>
+                    <p class="text-xs text-[#6b7280]">下载试卷+上传答题卡</p>
                 </div>
                 <div class="p-4 bg-gray-50 rounded border border-[#d1d5db] cursor-pointer" onclick="switchPage('weekly')">
                     <i class="fa fa-list-alt text-[#0d9488] mb-2"></i>
                     <h3 class="font-medium">周常</h3>
-                    <p class="text-xs text-[#6b7280]">每周限时小题训练</p>
+                    <p class="text-xs text-[#6b7280]">在线限时小题训练</p>
                 </div>
                 <div class="p-4 bg-gray-50 rounded border border-[#d1d5db] cursor-pointer" onclick="switchPage('magazine')">
                     <i class="fa fa-book text-[#0d9488] mb-2"></i>
@@ -302,50 +318,57 @@ body {
     </div>
 </section>
 
+<!-- 联考页面：下载试卷、下载答题卡、上传答题卡 -->
 <section id="page-exam" class="page page-hidden">
-    <h2 class="text-2xl font-bold mb-6">联考｜标准化大考</h2>
+    <h2 class="text-2xl font-bold mb-6">联考｜线下作答上传答题卡</h2>
     <div class="plain-card mb-6">
         <p class="text-sm text-[#6b7280] mb-4">
-            联考页面用于教师发布完整模拟卷、限时考试。正式考试需登录账号，提交答案后教师可在线批改。
+            使用流程：1.下载试卷PDF打印完成作答 2.下载答题卡PDF打印手写 3.拍照答题卡上传提交等待教师批改
         </p>
-        <div class="overflow-x-auto">
-            <table class="w-full text-sm">
-                <thead>
-                    <tr class="bg-gray-50">
-                        <th class="table-cell text-left">试卷名称</th>
-                        <th class="table-cell text-left">时长</th>
-                        <th class="table-cell text-left">满分</th>
-                        <th class="table-cell text-left">操作</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($examList)): ?>
-                        <tr><td colspan="4" class="table-cell text-[#6b7280]">暂无已发布联考试卷</td></tr>
-                    <?php else: ?>
-                        <?php foreach ($examList as $ep): ?>
-                        <tr>
-                            <td class="table-cell"><?php echo htmlspecialchars($ep['title']); ?></td>
-                            <td class="table-cell"><?php echo $ep['time_limit']; ?> 分钟</td>
-                            <td class="table-cell"><?php echo $ep['full_score']; ?></td>
-                            <td class="table-cell">
-                                <button class="btn btn-primary start-exam-btn" data-pid="<?php echo $ep['id']; ?>">开始模考作答</button>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
+        <?php if (empty($examList)): ?>
+            <p class="text-[#6b7280]">暂无已发布联考</p>
+        <?php else: ?>
+            <?php foreach ($examList as $ep): ?>
+            <div class="border border-[#d1d5db] rounded p-4 mb-4 bg-gray-50">
+                <h3 class="font-medium text-lg"><?php echo htmlspecialchars($ep['title']); ?></h3>
+                <p class="text-xs text-[#6b7280]">限时<?php echo $ep['time_limit']; ?>分钟｜满分<?php echo $ep['full_score']; ?></p>
+                <div class="download-row">
+                    <!-- 下载试卷按钮，后台需要填 paper.download_paper 存pdf路径 -->
+                    <a href="<?php echo htmlspecialchars($ep['download_paper'] ?? '#'); ?>" target="_blank" class="btn btn-blue" download>
+                        <i class="fa fa-download mr-1"></i>下载试卷
+                    </a>
+                    <a href="<?php echo htmlspecialchars($ep['download_card'] ?? '#'); ?>" target="_blank" class="btn btn-outline" download>
+                        <i class="fa fa-file-text-o mr-1"></i>下载答题卡
+                    </a>
+                </div>
+                <?php if ($isLogin): ?>
+                <!-- 上传答题卡表单 -->
+                <div class="upload-card-form">
+                    <form class="uploadCardForm" data-pid="<?php echo $ep['id']; ?>">
+                        <p class="text-sm font-medium mb-2 text-orange-600">上传你的答题卡（jpg/png ≤5MB）</p>
+                        <div class="flex gap-3 flex-wrap items-center">
+                            <input type="file" class="cardFileInput" accept="image/jpeg,image/jpg,image/png" required>
+                            <button type="submit" class="btn btn-orange">提交答题卡</button>
+                        </div>
+                        <p class="uploadTip text-sm mt-2 hidden"></p>
+                    </form>
+                </div>
+                <?php else: ?>
+                <p class="text-orange-500 text-sm mt-3">请先登录后上传答题卡</p>
+                <?php endif; ?>
+            </div>
+            <?php endforeach; ?>
+        <?php endif; ?>
     </div>
 
-    <!-- 本页面所有试卷对应的你的提交+批改成绩 -->
+    <!-- 联考提交记录（答题卡+批改成绩） -->
     <?php if ($isLogin): ?>
     <div class="plain-card mb-6">
-        <h3 class="text-lg font-semibold mb-3">你的联考提交记录（含批改成绩）</h3>
+        <h3 class="text-lg font-semibold mb-3">你的联考答题卡提交记录（含批改成绩）</h3>
         <?php
         $showExamRec = array_filter($myRecords, fn($r)=>$r['paper_type'] == 1);
         if(empty($showExamRec)){
-            echo '<p class="text-[#6b7280]">你还没有提交任何联考试卷</p>';
+            echo '<p class="text-[#6b7280]">你还没有上传任何联考答题卡</p>';
         }else{
             foreach($showExamRec as $rec):
                 $isFinish = $rec['score'] !== null;
@@ -353,6 +376,9 @@ body {
             <div class="record-block <?= $isFinish ? '' : 'record-pending' ?>">
                 <p class="font-medium"><?php echo htmlspecialchars($rec['title']) ?></p>
                 <p class="text-sm text-[#6b7280]">提交时间：<?php echo $rec['submit_time'] ?></p>
+                <?php if(!empty($rec['card_img'])): ?>
+                    <p class="text-sm mt-1">答题卡：<a href="<?php echo htmlspecialchars($rec['card_img']) ?>" target="_blank" class="text-blue-600 underline">点击查看原图</a></p>
+                <?php endif; ?>
                 <?php if($isFinish): ?>
                     <p class="text-green-600 font-medium mt-1">得分：<?php echo $rec['score'] ?> 分</p>
                     <?php if(!empty($rec['comment'])): ?>
@@ -388,11 +414,12 @@ body {
     </div>
 </section>
 
+<!-- 周常页面：保留在线答题逻辑不变 -->
 <section id="page-weekly" class="page page-hidden">
     <h2 class="text-2xl font-bold mb-6">周常小测｜每周限时训练</h2>
     <div class="plain-card mb-6">
         <p class="text-sm text-[#6b7280] mb-4">
-            周常小测以限时小题为主，适合日常查漏补缺。提交作答后等待教师批改查看分数与评语。
+            周常小测以限时小题为主，在线直接作答提交，等待教师批改查看分数与评语。
         </p>
         <div class="space-y-4">
             <?php if (empty($weekList)): ?>
@@ -435,7 +462,7 @@ body {
                     <p class="text-orange-500 mt-1">等待教师批改中</p>
                 <?php endif; ?>
             </div>
-            <?php endforeach;
+            <?php endforeach; ?>
         }
         ?>
     </div>
@@ -497,7 +524,7 @@ body {
     </div>
 </div>
 
-<!-- 答题弹窗【修复：循环渲染多题目，不再空白】 -->
+<!-- 周常答题弹窗（联考已移除该弹窗） -->
 <div id="exam-modal" class="fixed inset-0 bg-black/60 z-[110] hidden flex items-center justify-center p-4">
     <div class="plain-card w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div class="flex justify-between items-center mb-4">
@@ -508,9 +535,7 @@ body {
             <input type="hidden" name="paper_id" id="current_pid">
             <div class="mb-4">
                 <p class="text-sm text-[#6b7280] mb-2">全部题目：</p>
-                <div id="exam-content" class="bg-gray-50 p-3 rounded text-sm">
-                    <!-- JS自动填充所有题目 -->
-                </div>
+                <div id="exam-content" class="bg-gray-50 p-3 rounded text-sm"></div>
             </div>
             <div class="mb-4">
                 <label class="block text-sm font-medium mb-1">你的全部作答答案</label>
@@ -571,34 +596,23 @@ function switchModal(to) {
     document.getElementById(`modal-${to}`).classList.remove('hidden');
 }
 mask.onclick = e => { if (e.target === mask) closeModal(); }
+
+// 周常答题弹窗逻辑
 const examModal = document.getElementById('exam-modal');
 const examContentWrap = document.getElementById('exam-content');
 function escapeHtml(str) {
     if (!str) return '';
-    return str.replace(/&/g,'&amp;')
-              .replace(/</g,'&lt;')
-              .replace(/>/g,'&gt;')
-              .replace(/"/g,'&quot;')
-              .replace(/'/g,'&#039;');
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
 }
 function openExamModal(pid, title, questionList) {
     document.getElementById('current_pid').value = pid;
     document.getElementById('exam-title').innerText = title;
     examContentWrap.innerHTML = '';
-    const typeMap = {
-        1: '填空题',
-        2: '主观问答',
-        3: '计算题',
-        4: '简答题'
-    };
+    const typeMap = {1:'填空题',2:'主观问答',3:'计算题',4:'简答题'};
     if(questionList && questionList.length > 0){
         questionList.forEach(q=>{
-            let html = `<div class="question-item">
-                <div class="font-bold mb-1">${escapeHtml(q.q_no)} 【${typeMap[q.q_type]}】（${q.score}分）</div>
-                <div class="mb-2 whitespace-pre-wrap">${escapeHtml(q.content)}</div>`;
-            if(q.img_path && q.img_path !== ''){
-                html += `<img src="${escapeHtml(q.img_path)}" class="q-img" alt="题目配图" onerror="this.style.display='none'">`;
-            }
+            let html = `<div class="question-item"><div class="font-bold mb-1">${escapeHtml(q.q_no)} 【${typeMap[q.q_type]}】（${q.score}分）</div><div class="mb-2 whitespace-pre-wrap">${escapeHtml(q.content)}</div>`;
+            if(q.img_path && q.img_path !== '') html += `<img src="${escapeHtml(q.img_path)}" class="q-img" alt="题目配图" onerror="this.style.display='none'">`;
             html += `</div>`;
             examContentWrap.innerHTML += html;
         })
@@ -610,15 +624,15 @@ function openExamModal(pid, title, questionList) {
 function closeExamModal() { examModal.classList.add('hidden'); }
 examModal.onclick = e => { if (e.target === examModal) closeExamModal(); }
 const isLogin = <?php echo $isLogin ? 'true' : 'false'; ?>;
-const paperData = <?php echo json_encode($allPaperData); ?>;
+const weekPaperData = <?php echo json_encode($allWeekPaperData); ?>;
 document.querySelectorAll('.start-exam-btn').forEach(btn => {
     btn.onclick = () => {
         const pid = Number(btn.dataset.pid);
         if (!isLogin) return openModal('login');
         let targetPaper = null;
-        for (let i = 0; i < paperData.length; i++) {
-            if (paperData[i].id === pid) {
-                targetPaper = paperData[i];
+        for (let i = 0; i < weekPaperData.length; i++) {
+            if (weekPaperData[i].id === pid) {
+                targetPaper = weekPaperData[i];
                 break;
             }
         }
@@ -627,13 +641,50 @@ document.querySelectorAll('.start-exam-btn').forEach(btn => {
     }
 })
 
-// PDF自适应渲染
+// 联考答题卡上传AJAX
+document.querySelectorAll('.uploadCardForm').forEach(form=>{
+    form.onsubmit = async function(e){
+        e.preventDefault();
+        const pid = this.dataset.pid;
+        const fileInput = this.querySelector('.cardFileInput');
+        const tip = this.querySelector('.uploadTip');
+        const file = fileInput.files[0];
+        if(!file) return;
+        if(file.size > 5*1024*1024){
+            tip.className = 'uploadTip text-sm mt-2 text-red-500';
+            tip.innerText = '图片不能超过5MB';
+            return;
+        }
+        const formData = new FormData();
+        formData.append('upload_card', file);
+        formData.append('paper_id', pid);
+        try {
+            const res = await fetch('submit.php', {
+                method:'POST',
+                cache:'no-cache',
+                credentials:'same-origin',
+                body:formData
+            });
+            const data = await res.json();
+            if(data.code === 1){
+                tip.className = 'uploadTip text-sm mt-2 text-green-600';
+                tip.innerText = '答题卡上传成功！刷新页面可查看记录';
+                fileInput.value = '';
+            }else{
+                tip.className = 'uploadTip text-sm mt-2 text-red-500';
+                tip.innerText = data.msg;
+            }
+        }catch(err){
+            tip.className = 'uploadTip text-sm mt-2 text-red-500';
+            tip.innerText = '上传失败，请检查网络';
+        }
+    }
+})
+
+// PDF渲染逻辑
 const pdfjsLib = window['pdfjs-dist/build/pdf'];
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
-let pdfDoc = null;
-let pageNum = 1;
-let pageRendering = false;
-let pageNumPending = null;
+let pdfDoc = null, pageNum = 1, pageRendering = false, pageNumPending = null;
 const canvas = document.getElementById('pdf-canvas');
 const ctx = canvas.getContext('2d');
 const pdfModal = document.getElementById('pdf-modal');
@@ -644,59 +695,45 @@ const prevBtn = document.getElementById('pdf-prev');
 const nextBtn = document.getElementById('pdf-next');
 const closePdfBtn = document.getElementById('pdf-close');
 const wrap = document.getElementById('pdf-wrap');
-
-function getAutoScale(viewportWidth) {
+function getAutoScale(viewportWidth){
     const maxWidth = wrap.clientWidth - 40;
     return maxWidth / viewportWidth;
 }
-
-function renderPage(num) {
+function renderPage(num){
     pageRendering = true;
-    pdfDoc.getPage(num).then(page => {
-        const originViewport = page.getViewport({ scale: 1 });
+    pdfDoc.getPage(num).then(page=>{
+        const originViewport = page.getViewport({scale:1});
         const autoScale = getAutoScale(originViewport.width);
-        const viewport = page.getViewport({ scale: autoScale });
+        const viewport = page.getViewport({scale:autoScale});
         canvas.height = viewport.height;
         canvas.width = viewport.width;
-        const renderTask = page.render({ canvasContext: ctx, viewport: viewport });
-        renderTask.promise.then(() => {
+        const renderTask = page.render({canvasContext:ctx, viewport:viewport});
+        renderTask.promise.then(()=>{
             pageRendering = false;
             pageNumDom.textContent = num;
-            if(pageNumPending !== null) {
-                renderPage(pageNumPending);
-                pageNumPending = null;
-            }
+            if(pageNumPending !== null){ renderPage(pageNumPending); pageNumPending=null; }
         });
     });
 }
-function queueRenderPage(num) {
-    if(pageRendering) pageNumPending = num;
-    else renderPage(num);
-}
-function prevPage() {
-    if(pageNum <= 1) return;
-    pageNum--; queueRenderPage(pageNum);
-}
-function nextPage() {
-    if(pageNum >= pdfDoc.numPages) return;
-    pageNum++; queueRenderPage(pageNum);
-}
-async function openPdfFile(pdfPath, fileName) {
+function queueRenderPage(num){ if(pageRendering) pageNumPending=num; else renderPage(num); }
+function prevPage(){ if(pageNum<=1) return; pageNum--; queueRenderPage(pageNum); }
+function nextPage(){ if(pageNum>=pdfDoc.numPages) return; pageNum++; queueRenderPage(pageNum); }
+async function openPdfFile(pdfPath, fileName){
     pdfModal.classList.remove('hidden');
     pdfTitle.innerText = fileName;
     pageNum = 1;
     ctx.clearRect(0,0,canvas.width,canvas.height);
-    try {
+    try{
         const loadingTask = pdfjsLib.getDocument(pdfPath);
         pdfDoc = await loadingTask.promise;
         totalPageDom.textContent = pdfDoc.numPages;
         renderPage(pageNum);
-    } catch(err) {
-        alert("PDF加载失败，请检查网站pdf目录下vol1.pdf是否上传");
+    }catch(err){
+        alert("PDF加载失败，请检查文件路径");
         pdfModal.classList.add('hidden');
     }
 }
-function closePdfModal() {
+function closePdfModal(){
     pdfModal.classList.add('hidden');
     ctx.clearRect(0,0,canvas.width,canvas.height);
     pdfDoc = null;
@@ -712,9 +749,7 @@ prevBtn.onclick = prevPage;
 nextBtn.onclick = nextPage;
 closePdfBtn.onclick = closePdfModal;
 pdfModal.onclick = e=>{ if(e.target === pdfModal) closePdfModal(); }
-window.addEventListener('resize', ()=>{
-    if(pdfDoc) queueRenderPage(pageNum);
-})
+window.addEventListener('resize', ()=>{ if(pdfDoc) queueRenderPage(pageNum); })
 </script>
 </body>
 </html>
