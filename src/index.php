@@ -43,6 +43,20 @@ $weekStmt = $pdo->prepare("SELECT * FROM paper WHERE paper_type = 2 AND is_publi
 $weekStmt->execute();
 $weekList = $weekStmt->fetchAll();
 
+// 预加载所有试卷对应的题目（解决点击作答空白）
+$allPaperIds = [];
+foreach ($examList as $v) $allPaperIds[] = $v['id'];
+foreach ($weekList as $v) $allPaperIds[] = $v['id'];
+$paperQuestions = [];
+if (!empty($allPaperIds)) {
+    $inStr = implode(',', array_map('intval', $allPaperIds));
+    $qAllStmt = $pdo->query("SELECT * FROM question WHERE paper_id IN ($inStr) ORDER BY q_no");
+    $qAll = $qAllStmt->fetchAll();
+    foreach ($qAll as $q) {
+        $paperQuestions[$q['paper_id']][] = $q;
+    }
+}
+
 // 我的答题记录
 $myRecords = array();
 if ($isLogin) {
@@ -54,6 +68,17 @@ if ($isLogin) {
     $recStmt = $pdo->prepare($recSql);
     $recStmt->execute([$uid]);
     $myRecords = $recStmt->fetchAll();
+}
+
+// 组装试卷JSON，附带题目
+$allPaperData = [];
+foreach ($examList as $p) {
+    $p['questions'] = $paperQuestions[$p['id']] ?? [];
+    $allPaperData[] = $p;
+}
+foreach ($weekList as $p) {
+    $p['questions'] = $paperQuestions[$p['id']] ?? [];
+    $allPaperData[] = $p;
 }
 ?>
 <!DOCTYPE html>
@@ -129,6 +154,12 @@ body {
 #pdf-canvas {
     max-width: 100%;
     height: auto;
+}
+.question-item {
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 10px;
 }
 </style>
 </head>
@@ -437,7 +468,7 @@ body {
     </div>
 </div>
 
-<!-- 答题弹窗 -->
+<!-- 答题弹窗【修复：循环渲染多题目，不再空白】 -->
 <div id="exam-modal" class="fixed inset-0 bg-black/60 z-[110] hidden flex items-center justify-center p-4">
     <div class="plain-card w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div class="flex justify-between items-center mb-4">
@@ -447,8 +478,10 @@ body {
         <form action="submit.php" method="post">
             <input type="hidden" name="paper_id" id="current_pid">
             <div class="mb-4">
-                <p class="text-sm text-[#6b7280] mb-2">题目内容：</p>
-                <div class="bg-gray-50 p-3 rounded text-sm whitespace-pre-wrap" id="exam-content"></div>
+                <p class="text-sm text-[#6b7280] mb-2">全部题目：</p>
+                <div id="exam-content" class="bg-gray-50 p-3 rounded text-sm">
+                    <!-- JS自动填充所有题目 -->
+                </div>
             </div>
             <div class="mb-4">
                 <label class="block text-sm font-medium mb-1">你的全部作答答案</label>
@@ -510,29 +543,55 @@ function switchModal(to) {
 }
 mask.onclick = e => { if (e.target === mask) closeModal(); }
 const examModal = document.getElementById('exam-modal');
-function openExamModal(pid, title, content) {
+const examContentWrap = document.getElementById('exam-content');
+function openExamModal(pid, title, questionList) {
     document.getElementById('current_pid').value = pid;
     document.getElementById('exam-title').innerText = title;
-    document.getElementById('exam-content').innerText = content;
+    // 清空旧内容
+    examContentWrap.innerHTML = '';
+    // 题型映射
+    const typeMap = {
+        1: '填空题',
+        2: '主观问答',
+        3: '计算题',
+        4: '简答题'
+    };
+    // 循环渲染每一道题目
+    if(questionList && questionList.length > 0){
+        questionList.forEach(q=>{
+            let html = `<div class="question-item">
+                <div class="font-bold mb-1">${q.q_no} 【${typeMap[q.q_type]}】（${q.score}分）</div>
+                <div class="mb-2 whitespace-pre-wrap">${q.content}</div>`;
+            // 如果有图片
+            if(q.img_path){
+                html += `<img src="${q.img_path}" class="max-w-full border rounded mb-2">`;
+            }
+            html += `</div>`;
+            examContentWrap.innerHTML += html;
+        })
+    }else{
+        examContentWrap.innerHTML = '<p class="text-red-500">该试卷暂无题目，请等待教师完善试卷内容</p>';
+    }
     examModal.classList.remove('hidden');
 }
 function closeExamModal() { examModal.classList.add('hidden'); }
 examModal.onclick = e => { if (e.target === examModal) closeExamModal(); }
 const isLogin = <?php echo $isLogin ? 'true' : 'false'; ?>;
-const paperData = <?php echo json_encode(array_merge($examList, $weekList)); ?>;
+// 完整试卷数据（包含题目数组）
+const paperData = <?php echo json_encode($allPaperData); ?>;
 document.querySelectorAll('.start-exam-btn').forEach(btn => {
     btn.onclick = () => {
-        const pid = btn.dataset.pid;
+        const pid = Number(btn.dataset.pid);
         if (!isLogin) return openModal('login');
         let targetPaper = null;
         for (let i = 0; i < paperData.length; i++) {
-            if (paperData[i].id == pid) {
+            if (paperData[i].id === pid) {
                 targetPaper = paperData[i];
                 break;
             }
         }
         if (!targetPaper) return alert("试卷不存在");
-        openExamModal(pid, targetPaper.title, targetPaper.content);
+        openExamModal(pid, targetPaper.title, targetPaper.questions);
     }
 })
 
