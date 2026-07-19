@@ -53,16 +53,15 @@ if (!empty($allPaperIds)) {
     $qAllStmt = $pdo->query("SELECT * FROM question WHERE paper_id IN ($inStr) ORDER BY q_no");
     $qAll = $qAllStmt->fetchAll();
     foreach ($qAll as $q) {
-        // 图片路径强制过滤空值
         $q['img_path'] = trim($q['img_path'] ?? '');
         $paperQuestions[$q['paper_id']][] = $q;
     }
 }
 
-// 我的答题记录
+// 我的答题记录（带分数、评语）
 $myRecords = array();
 if ($isLogin) {
-    $recSql = "SELECT ar.score, ar.comment, ar.submit_time, p.title, p.paper_type
+    $recSql = "SELECT ar.score, ar.comment, ar.submit_time, p.title, p.paper_type, p.id as paper_id
     FROM answer_record ar
     LEFT JOIN paper p ON ar.paper_id = p.id
     WHERE ar.uid = ?
@@ -81,6 +80,13 @@ foreach ($examList as $p) {
 foreach ($weekList as $p) {
     $p['questions'] = $paperQuestions[$p['id']] ?? [];
     $allPaperData[] = $p;
+}
+
+// 按试卷ID分组学生答题记录，方便页面匹配展示
+$groupRecords = [];
+foreach ($myRecords as $item) {
+    $pid = $item['paper_id'];
+    $groupRecords[$pid][] = $item;
 }
 ?>
 <!DOCTYPE html>
@@ -168,6 +174,17 @@ body {
     border: 1px solid #ccc;
     border-radius: 4px;
     margin: 8px 0;
+}
+.record-block {
+    border-left:4px solid #0d9488;
+    padding:10px 14px;
+    background:#f0fdfa;
+    margin-top:10px;
+    border-radius:0 6px 6px 0;
+}
+.record-pending {
+    border-left:4px solid #f59e0b;
+    background:#fffbeb;
 }
 </style>
 </head>
@@ -320,34 +337,36 @@ body {
             </table>
         </div>
     </div>
-    <div class="plain-card">
-        <h3 class="text-lg font-semibold mb-3">我的联考记录</h3>
-        <?php if (!$isLogin): ?>
-            <p class="text-sm text-[#6b7280]">登录后查看你的考试分数、教师评语与错题。</p>
-        <?php else: ?>
-            <?php
-            $myExamRec = array_filter($myRecords, function($v) {
-                return $v['paper_type'] == 1;
-            });
-            if (empty($myExamRec)):
+
+    <!-- 本页面所有试卷对应的你的提交+批改成绩 -->
+    <?php if ($isLogin): ?>
+    <div class="plain-card mb-6">
+        <h3 class="text-lg font-semibold mb-3">你的联考提交记录（含批改成绩）</h3>
+        <?php
+        $showExamRec = array_filter($myRecords, fn($r)=>$r['paper_type'] == 1);
+        if(empty($showExamRec)){
+            echo '<p class="text-[#6b7280]">你还没有提交任何联考试卷</p>';
+        }else{
+            foreach($showExamRec as $rec):
+                $isFinish = $rec['score'] !== null;
             ?>
-                <p class="text-sm text-[#6b7280]">你还未完成任何联考作答</p>
-            <?php else: ?>
-                <div class="space-y-3">
-                <?php foreach ($myExamRec as $rec): ?>
-                    <div class="border border-[#d1d5db] p-3 rounded">
-                        <p class="font-medium"><?php echo htmlspecialchars($rec['title']); ?></p>
-                        <p class="text-sm text-[#6b7280]">提交时间：<?php echo $rec['submit_time']; ?></p>
-                        <p class="text-sm mt-1">得分：<?php echo isset($rec['score']) ? $rec['score'] : '待批改'; ?></p>
-                        <?php if (!empty($rec['comment'])): ?>
-                            <p class="text-sm mt-1">教师评语：<?php echo htmlspecialchars($rec['comment']); ?></p>
-                        <?php endif; ?>
-                    </div>
-                <?php endforeach; ?>
-                </div>
-            <?php endif; ?>
-        <?php endif; ?>
+            <div class="record-block <?= $isFinish ? '' : 'record-pending' ?>">
+                <p class="font-medium"><?php echo htmlspecialchars($rec['title']) ?></p>
+                <p class="text-sm text-[#6b7280]">提交时间：<?php echo $rec['submit_time'] ?></p>
+                <?php if($isFinish): ?>
+                    <p class="text-green-600 font-medium mt-1">得分：<?php echo $rec['score'] ?> 分</p>
+                    <?php if(!empty($rec['comment'])): ?>
+                        <p class="mt-1"><span class="font-medium">教师评语：</span><?php echo htmlspecialchars($rec['comment']) ?></p>
+                    <?php endif; ?>
+                <?php else: ?>
+                    <p class="text-orange-500 mt-1">等待教师批改中</p>
+                <?php endif; ?>
+            </div>
+            <?php endforeach;
+        }
+        ?>
     </div>
+    <?php endif; ?>
 </section>
 
 <section id="page-magazine" class="page page-hidden">
@@ -391,34 +410,36 @@ body {
             <?php endif; ?>
         </div>
     </div>
+
+    <!-- 周常提交+批改成绩展示 -->
+    <?php if ($isLogin): ?>
     <div class="plain-card">
-        <h3 class="text-lg font-semibold mb-3">周测历史记录</h3>
-        <?php if (!$isLogin): ?>
-            <p class="text-sm text-[#6b7280]">登录后保存所有周测成绩与教师评语。</p>
-        <?php else: ?>
-            <?php
-            $myWeekRec = array_filter($myRecords, function($v) {
-                return $v['paper_type'] == 2;
-            });
-            if (empty($myWeekRec)):
+        <h3 class="text-lg font-semibold mb-3">你的周测提交记录（含批改成绩）</h3>
+        <?php
+        $showWeekRec = array_filter($myRecords, fn($r)=>$r['paper_type'] == 2);
+        if(empty($showWeekRec)){
+            echo '<p class="text-[#6b7280]">你还没有提交任何周常小测</p>';
+        }else{
+            foreach($showWeekRec as $rec):
+                $isFinish = $rec['score'] !== null;
             ?>
-                <p class="text-sm text-[#6b7280]">你还未完成任何周常作答</p>
-            <?php else: ?>
-                <div class="space-y-3">
-                <?php foreach ($myWeekRec as $rec): ?>
-                    <div class="border border-[#d1d5db] p-3 rounded">
-                        <p class="font-medium"><?php echo htmlspecialchars($rec['title']); ?></p>
-                        <p class="text-sm text-[#6b7280]">提交时间：<?php echo $rec['submit_time']; ?></p>
-                        <p class="text-sm mt-1">得分：<?php echo isset($rec['score']) ? $rec['score'] : '待批改'; ?></p>
-                        <?php if (!empty($rec['comment'])): ?>
-                            <p class="text-sm mt-1">教师评语：<?php echo htmlspecialchars($rec['comment']); ?></p>
-                        <?php endif; ?>
-                    </div>
-                <?php endforeach; ?>
-                </div>
-            <?php endif; ?>
-        <?php endif; ?>
+            <div class="record-block <?= $isFinish ? '' : 'record-pending' ?>">
+                <p class="font-medium"><?php echo htmlspecialchars($rec['title']) ?></p>
+                <p class="text-sm text-[#6b7280]">提交时间：<?php echo $rec['submit_time'] ?></p>
+                <?php if($isFinish): ?>
+                    <p class="text-green-600 font-medium mt-1">得分：<?php echo $rec['score'] ?> 分</p>
+                    <?php if(!empty($rec['comment'])): ?>
+                        <p class="mt-1"><span class="font-medium">教师评语：</span><?php echo htmlspecialchars($rec['comment']) ?></p>
+                    <?php endif; ?>
+                <?php else: ?>
+                    <p class="text-orange-500 mt-1">等待教师批改中</p>
+                <?php endif; ?>
+            </div>
+            <?php endforeach;
+        }
+        ?>
     </div>
+    <?php endif; ?>
 </section>
 </main>
 
@@ -476,7 +497,7 @@ body {
     </div>
 </div>
 
-<!-- 答题弹窗【修复图片渲染】 -->
+<!-- 答题弹窗【修复：循环渲染多题目，不再空白】 -->
 <div id="exam-modal" class="fixed inset-0 bg-black/60 z-[110] hidden flex items-center justify-center p-4">
     <div class="plain-card w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div class="flex justify-between items-center mb-4">
@@ -552,6 +573,14 @@ function switchModal(to) {
 mask.onclick = e => { if (e.target === mask) closeModal(); }
 const examModal = document.getElementById('exam-modal');
 const examContentWrap = document.getElementById('exam-content');
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;')
+              .replace(/</g,'&lt;')
+              .replace(/>/g,'&gt;')
+              .replace(/"/g,'&quot;')
+              .replace(/'/g,'&#039;');
+}
 function openExamModal(pid, title, questionList) {
     document.getElementById('current_pid').value = pid;
     document.getElementById('exam-title').innerText = title;
@@ -567,7 +596,6 @@ function openExamModal(pid, title, questionList) {
             let html = `<div class="question-item">
                 <div class="font-bold mb-1">${escapeHtml(q.q_no)} 【${typeMap[q.q_type]}】（${q.score}分）</div>
                 <div class="mb-2 whitespace-pre-wrap">${escapeHtml(q.content)}</div>`;
-            // 图片渲染修复
             if(q.img_path && q.img_path !== ''){
                 html += `<img src="${escapeHtml(q.img_path)}" class="q-img" alt="题目配图" onerror="this.style.display='none'">`;
             }
@@ -578,15 +606,6 @@ function openExamModal(pid, title, questionList) {
         examContentWrap.innerHTML = '<p class="text-red-500">该试卷暂无题目，请等待教师完善试卷内容</p>';
     }
     examModal.classList.remove('hidden');
-}
-// HTML转义防止路径断裂
-function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/&/g,'&amp;')
-              .replace(/</g,'&lt;')
-              .replace(/>/g,'&gt;')
-              .replace(/"/g,'&quot;')
-              .replace(/'/g,'&#039;');
 }
 function closeExamModal() { examModal.classList.add('hidden'); }
 examModal.onclick = e => { if (e.target === examModal) closeExamModal(); }
