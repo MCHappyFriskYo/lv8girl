@@ -28,18 +28,22 @@ if ($isLogin && isset($_SESSION['role']) && $_SESSION['role'] == 1) {
     $isTeacher = true;
 }
 
+// 公告查询
 $noticeSql = "SELECT n.content, t.username, n.create_time FROM notice n LEFT JOIN cho_user t ON n.create_tid = t.id ORDER BY n.create_time DESC LIMIT 3";
 $noticeSt = $pdo->query($noticeSql);
 $noticeList = $noticeSt->fetchAll();
 
+// 已发布联考 paper_type=1 已发布is_publish=1
 $examStmt = $pdo->prepare("SELECT * FROM paper WHERE paper_type = 1 AND is_publish = 1 ORDER BY create_time DESC");
 $examStmt->execute();
 $examList = $examStmt->fetchAll();
 
+// 已发布周常 paper_type=2 已发布is_publish=1
 $weekStmt = $pdo->prepare("SELECT * FROM paper WHERE paper_type = 2 AND is_publish = 1 ORDER BY create_time DESC");
 $weekStmt->execute();
 $weekList = $weekStmt->fetchAll();
 
+// 我的答题记录
 $myRecords = array();
 if ($isLogin) {
     $recSql = "SELECT ar.score, ar.comment, ar.submit_time, p.title, p.paper_type
@@ -113,7 +117,6 @@ body {
     background: #f4f6f8;
     color: #1f2937;
 }
-/* PDF容器修复样式 */
 #pdf-wrap {
     width: 100%;
     height: 100%;
@@ -159,7 +162,7 @@ body {
             <div class="hidden md:flex items-center gap-3">
                 <span class="text-[#0d9488] font-medium"><?php echo htmlspecialchars($loginName); ?></span>
                 <?php if ($isTeacher): ?>
-                    <a href="admin.php" class="btn btn-primary">进入教师后台</a>
+                    <a href="admin.php" class="btn btn-primary text-sm">进入教师后台</a>
                 <?php endif; ?>
                 <a href="?logout=1" class="btn btn-outline">退出</a>
             </div>
@@ -456,7 +459,7 @@ body {
     </div>
 </div>
 
-<!-- PDF阅读器弹窗【修复滚动/显示不全】 -->
+<!-- PDF阅读器弹窗 -->
 <div id="pdf-modal" class="fixed inset-0 bg-black/80 z-[200] hidden flex flex-col items-center justify-center p-4">
     <div class="w-full max-w-5xl h-[92vh] flex flex-col bg-white rounded-lg overflow-hidden">
         <div class="flex items-center justify-between px-4 py-3 border-b border-borderColor shrink-0">
@@ -533,7 +536,7 @@ document.querySelectorAll('.start-exam-btn').forEach(btn => {
     }
 })
 
-// PDF 修复自适应逻辑
+// PDF自适应渲染
 const pdfjsLib = window['pdfjs-dist/build/pdf'];
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
 let pdfDoc = null;
@@ -551,7 +554,6 @@ const nextBtn = document.getElementById('pdf-next');
 const closePdfBtn = document.getElementById('pdf-close');
 const wrap = document.getElementById('pdf-wrap');
 
-// 自动计算缩放，完美适配容器宽度
 function getAutoScale(viewportWidth) {
     const maxWidth = wrap.clientWidth - 40;
     return maxWidth / viewportWidth;
@@ -619,7 +621,6 @@ prevBtn.onclick = prevPage;
 nextBtn.onclick = nextPage;
 closePdfBtn.onclick = closePdfModal;
 pdfModal.onclick = e=>{ if(e.target === pdfModal) closePdfModal(); }
-// 窗口大小变化自动重绘适配
 window.addEventListener('resize', ()=>{
     if(pdfDoc) queueRenderPage(pageNum);
 })
