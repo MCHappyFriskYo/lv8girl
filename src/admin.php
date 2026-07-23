@@ -260,6 +260,7 @@ tailwind.config = {
         <a href="#notice" class="py-2 cursor-pointer hover:text-primary">发布平台公告</a>
         <a href="#paper_edit" class="py-2 cursor-pointer hover:text-primary tab-active">新建/编辑试卷</a>
         <a href="#paper_list" class="py-2 cursor-pointer hover:text-primary">我的全部试卷</a>
+        <a href="card\_list.php" class="py-2 cursor-pointer hover:text-primary">答题卡管理</a>
     </div>
 
     <!-- 模块1：发布公告 -->
