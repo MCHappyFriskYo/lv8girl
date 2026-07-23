@@ -19,8 +19,8 @@ $uid = $_SESSION['uid'] ?? 0;
 $loginName = $_SESSION['username'] ?? '';
 $isTeacher = ($isLogin && $_SESSION['role'] == 1);
 
-// 查询公告
-$noticeList = $pdo->query("SELECT content,username,create_time FROM notice ORDER BY create_time DESC LIMIT 3")->fetchAll();
+// 【修复】去掉 username，notice表无此字段
+$noticeList = $pdo->query("SELECT content,create_time FROM notice ORDER BY create_time DESC LIMIT 3")->fetchAll();
 
 // 只读取周常试卷 paper_type=2
 $weekList = $pdo->query("SELECT id,title,time_limit,full_score FROM paper WHERE paper_type=2 AND is_publish=1 ORDER BY create_time DESC")->fetchAll();
@@ -158,7 +158,7 @@ if ($isLogin) {
     <span class="text-[#0d9488]">▸</span>
     <div>
         <p><?=nl2br(htmlspecialchars($n['content']))?></p>
-        <p class="text-xs text-gray-500 mt-1">发布人：<?=htmlspecialchars($n['username'])?> <?= $n['create_time'] ?></p>
+        <p class="text-xs text-gray-500 mt-1">发布时间：<?= $n['create_time'] ?></p>
     </div>
 </div>
 <?php endforeach; endif; ?>
