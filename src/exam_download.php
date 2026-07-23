@@ -1,10 +1,8 @@
 <?php
-// 开启错误显示，方便排查
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 require_once "config.php";
 
-// 只查询：已发布 + 类型=1（联考）
 $sql = "SELECT id, title, time_limit, full_score, download_paper, download_card 
         FROM paper 
         WHERE paper_type = 1 AND is_publish = 1 
@@ -47,9 +45,7 @@ body{background:#f4f6f8;}
     <div class="box text-center text-gray-500 py-10">
         <i class="fa fa-folder-open-o text-4xl mb-3 text-gray-300"></i>
         <p>暂无上架的联考试卷</p>
-        <p class="text-xs mt-2 text-red-500">
-            排查：后台创建试卷时必须选【联考】+勾选【立即发布】，并填写PDF文件名
-        </p>
+        <p class="text-xs mt-2 text-red-500">后台创建需选择联考、勾选发布、填写pdf文件名</p>
     </div>
     <?php else: ?>
         <?php foreach ($examList as $item): ?>
@@ -59,20 +55,26 @@ body{background:#f4f6f8;}
                 考试时长：<?=$item['time_limit']?> 分钟 &nbsp;|&nbsp; 总分：<?=$item['full_score']?> 分
             </p>
             <div>
-                <?php if (!empty(trim($item['download_paper']))): ?>
-                    <a href="<?=htmlspecialchars($item['download_paper'])?>" download target="_blank" class="btn btn-blue">
+                <?php 
+                $paperFile = trim($item['download_paper']);
+                if (!empty($paperFile)): 
+                ?>
+                    <a href="download.php?file=<?=urlencode($paperFile)?>" class="btn btn-blue">
                         <i class="fa fa-download mr-1"></i>下载试卷PDF
                     </a>
                 <?php else: ?>
-                    <span class="text-gray-400 block py-2">⚠️ 试卷文件未填写</span>
+                    <span class="text-gray-400 block py-2">⚠️ 试卷文件未上传</span>
                 <?php endif; ?>
 
-                <?php if (!empty(trim($item['download_card']))): ?>
-                    <a href="<?=htmlspecialchars($item['download_card'])?>" download target="_blank" class="btn btn-gray">
+                <?php 
+                $cardFile = trim($item['download_card']);
+                if (!empty($cardFile)): 
+                ?>
+                    <a href="download.php?file=<?=urlencode($cardFile)?>" class="btn btn-gray">
                         <i class="fa fa-file-text mr-1"></i>下载答题卡PDF
                     </a>
                 <?php else: ?>
-                    <span class="text-gray-400 block py-2">⚠️ 答题卡文件未填写</span>
+                    <span class="text-gray-400 block py-2">⚠️ 答题卡文件未上传</span>
                 <?php endif; ?>
             </div>
         </div>
