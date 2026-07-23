@@ -1,20 +1,25 @@
 <?php
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 require_once "config.php";
+
 header("Expires: Thu, 01 Jan 1970 00:00:00 GMT");
 header("Cache-Control: no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
 
-// 教师权限拦截
-if (!isset($_SESSION['uid']) || !isTeacherLogin()) {
-    $_SESSION['msg'] = "无教师访问权限，请用教师账号登录首页后再进入后台";
+// 教师权限校验
+if (!isset($_SESSION['uid']) || empty($_SESSION['role']) || $_SESSION['role'] != 1) {
+    $_SESSION['msg'] = "无教师权限，请登录教师账号";
     header("Location: index.php");
     exit;
 }
 $tid = $_SESSION['uid'];
 $tname = $_SESSION['username'];
 $msg = '';
-$uploadBase = 'upload/question/';
-if (!is_dir($uploadBase)) mkdir($uploadBase, 0755, true);
+
+// 创建文件夹
+$imgDir = 'upload/question/';
+if (!is_dir($imgDir)) mkdir($imgDir, 0755, true);
 
 // 1、发布公告
 if (isset($_POST['save_notice'])) {
@@ -22,133 +27,179 @@ if (isset($_POST['save_notice'])) {
     if (empty($content)) {
         $msg = "公告内容不能为空";
     } else {
-        $stmt = $pdo->prepare("INSERT INTO notice(content,create_tid) VALUES (?,?)");
-        $stmt->execute([$content, $tid]);
+        $ins = $pdo->prepare("INSERT INTO notice(content, create_tid, create_time) VALUES (?,?,NOW())");
+        $ins->execute([$content, $tid]);
         $msg = "公告发布成功";
     }
 }
 
-// 2、AJAX上传题目图片【重写修复mime识别、容错、返回清晰提示】
+// 2、上传题目图片AJAX接口
 if (isset($_FILES['qimg']) && $_FILES['qimg']['error'] === 0) {
-    // 前端限制5MB
     if ($_FILES['qimg']['size'] > 5 * 1024 * 1024) {
-        echo json_encode(['code' => 0, 'msg' => '图片不能超过5MB']);
+        echo json_encode(['code' => 0, 'msg' => '图片最大5MB']);
         exit;
     }
-    // 兼容fileinfo扩展，替代废弃mime_content_type
     $finfo = new Finfo(FILEINFO_MIME_TYPE);
     $mime = $finfo->file($_FILES['qimg']['tmp_name']);
-    $allowMime = ['image/jpeg','image/jpg','image/png','image/gif'];
-    if (!in_array($mime, $allowMime)) {
-        echo json_encode(['code' => 0, 'msg' => '仅支持jpg/png/gif图片']);
+    $allow = ['image/jpeg','image/png','image/gif'];
+    if (!in_array($mime, $allow)) {
+        echo json_encode(['code' => 0, 'msg' => '仅支持jpg/png/gif']);
         exit;
     }
     $ext = pathinfo($_FILES['qimg']['name'], PATHINFO_EXTENSION);
-    $saveName = md5(time() . rand(1000, 9999)) . "." . $ext;
-    $savePath = $uploadBase . $saveName;
+    $saveName = md5(time() . rand(100,999)) . '.' . $ext;
+    $savePath = $imgDir . $saveName;
     if (move_uploaded_file($_FILES['qimg']['tmp_name'], $savePath)) {
         echo json_encode(['code' => 1, 'path' => $savePath]);
     } else {
-        echo json_encode(['code' => 0, 'msg' => '文件夹写入失败，请设置upload/question权限755']);
+        echo json_encode(['code' => 0, 'msg' => '文件夹权限不足']);
     }
     exit;
 }
 
-// 3、保存整套试卷（修复is_publish丢失、总分自动计算）
-if (isset($_POST['save_full_paper'])) {
-    $pid = isset($_POST['pid']) ? intval($_POST['pid']) : 0;
+// 3、保存试卷（核心：区分联考/周常表单逻辑）
+if (isset($_POST['save_paper'])) {
+    $pid = intval($_POST['pid'] ?? 0);
     $title = trim($_POST['title']);
     $paperType = intval($_POST['paper_type']);
     $timeLimit = intval($_POST['time_limit']);
     $isPublish = isset($_POST['is_publish']) ? 1 : 0;
 
-    $qNos = $_POST['q_no'] ?? [];
-    $qTypes = $_POST['q_type'] ?? [];
-    $qScores = $_POST['q_score'] ?? [];
-    $qContents = $_POST['q_content'] ?? [];
-    $qImgs = $_POST['q_img'] ?? [];
-    $qAnswers = $_POST['q_answer'] ?? [];
+    // 联考专属：pdf文件路径
+    $pdfPaper = trim($_POST['pdf_paper'] ?? '');
+    $pdfCard = trim($_POST['pdf_card'] ?? '');
 
-    if (empty($title) || empty($qNos)) {
-        $msg = "试卷名称、至少一道题目必填";
+    if (empty($title)) {
+        $msg = "试卷名称不能为空";
     } else {
-        $totalScore = array_sum($qScores);
         if ($pid > 0) {
-            $upPaper = $pdo->prepare("UPDATE paper SET title=?,paper_type=?,time_limit=?,full_score=?,is_publish=? WHERE id=? AND create_tid=?");
-            $upPaper->execute([$title, $paperType, $timeLimit, $totalScore, $isPublish, $pid, $tid]);
-            $pdo->prepare("DELETE FROM question WHERE paper_id=?")->execute([$pid]);
+            // 更新试卷
+            if ($paperType == 1) {
+                // 联考：只更新基础信息+pdf地址，清空原有题目
+                $up = $pdo->prepare("UPDATE paper SET title=?,paper_type=?,time_limit=?,is_publish=?,download_paper=?,download_card=? WHERE id=? AND create_tid=?");
+                $up->execute([$title, $paperType, $timeLimit, $isPublish, $pdfPaper, $pdfCard, $pid, $tid]);
+                // 删除该试卷下所有题目（联考不需要题目）
+                $pdo->prepare("DELETE FROM question WHERE paper_id=?")->execute([$pid]);
+            } else {
+                // 周常：原有整套题目保存逻辑
+                $qNos = $_POST['q_no'] ?? [];
+                $qTypes = $_POST['q_type'] ?? [];
+                $qScores = $_POST['q_score'] ?? [];
+                $qContents = $_POST['q_content'] ?? [];
+                $qImgs = $_POST['q_img'] ?? [];
+                $qAnswers = $_POST['q_answer'] ?? [];
+                $totalScore = array_sum($qScores);
+
+                $up = $pdo->prepare("UPDATE paper SET title=?,paper_type=?,time_limit=?,full_score=?,is_publish=? WHERE id=? AND create_tid=?");
+                $up->execute([$title, $paperType, $timeLimit, $totalScore, $isPublish, $pid, $tid]);
+                $pdo->prepare("DELETE FROM question WHERE paper_id=?")->execute([$pid]);
+
+                $insQ = $pdo->prepare("INSERT INTO question(paper_id,q_no,q_type,score,content,img_path,answer) VALUES (?,?,?,?,?,?,?)");
+                for ($i = 0; $i < count($qNos); $i++) {
+                    $insQ->execute([
+                        $pid,
+                        trim($qNos[$i]),
+                        intval($qTypes[$i]),
+                        intval($qScores[$i]),
+                        trim($qContents[$i]),
+                        trim($qImgs[$i]),
+                        trim($qAnswers[$i])
+                    ]);
+                }
+            }
+            $msg = "试卷修改保存成功";
         } else {
-            $addPaper = $pdo->prepare("INSERT INTO paper(title,paper_type,time_limit,full_score,is_publish,create_tid) VALUES (?,?,?,?,?,?)");
-            $addPaper->execute([$title, $paperType, $timeLimit, $totalScore, $isPublish, $tid]);
-            $pid = $pdo->lastInsertId();
+            // 新建试卷
+            if ($paperType == 1) {
+                // 联考：总分默认0，无需题目分数汇总
+                $add = $pdo->prepare("INSERT INTO paper(title,paper_type,time_limit,full_score,is_publish,download_paper,download_card,create_tid,create_time) VALUES (?,?,?,?,?,?,?, ?,NOW())");
+                $add->execute([$title, 1, $timeLimit, 0, $isPublish, $pdfPaper, $pdfCard, $tid]);
+            } else {
+                // 周常：录入题目计算总分
+                $qNos = $_POST['q_no'] ?? [];
+                $qTypes = $_POST['q_type'] ?? [];
+                $qScores = $_POST['q_score'] ?? [];
+                $qContents = $_POST['q_content'] ?? [];
+                $qImgs = $_POST['q_img'] ?? [];
+                $qAnswers = $_POST['q_answer'] ?? [];
+                $totalScore = array_sum($qScores);
+
+                $add = $pdo->prepare("INSERT INTO paper(title,paper_type,time_limit,full_score,is_publish,create_tid,create_time) VALUES (?,?,?,?,?,?,NOW())");
+                $add->execute([$title, 2, $timeLimit, $totalScore, $isPublish, $tid]);
+                $newPid = $pdo->lastInsertId();
+
+                $insQ = $pdo->prepare("INSERT INTO question(paper_id,q_no,q_type,score,content,img_path,answer) VALUES (?,?,?,?,?,?,?)");
+                for ($i = 0; $i < count($qNos); $i++) {
+                    $insQ->execute([
+                        $newPid,
+                        trim($qNos[$i]),
+                        intval($qTypes[$i]),
+                        intval($qScores[$i]),
+                        trim($qContents[$i]),
+                        trim($qImgs[$i]),
+                        trim($qAnswers[$i])
+                    ]);
+                }
+            }
+            $msg = "试卷创建成功";
         }
-        $insertQuestion = $pdo->prepare("INSERT INTO question(paper_id,q_no,q_type,score,content,img_path,answer) VALUES (?,?,?,?,?,?,?)");
-        for ($i = 0; $i < count($qNos); $i++) {
-            $insertQuestion->execute([
-                $pid,
-                trim($qNos[$i]),
-                intval($qTypes[$i]),
-                intval($qScores[$i]),
-                trim($qContents[$i]),
-                trim($qImgs[$i]),
-                trim($qAnswers[$i])
-            ]);
-        }
-        $msg = "试卷保存成功，总分：" . $totalScore . "分";
     }
 }
 
-// 4、批改学生作答
-if (isset($_POST['score_submit'])) {
+// 4、批改学生作答打分保存
+if (isset($_POST['save_score'])) {
     $arid = intval($_POST['arid']);
-    $score = trim($_POST['score']) === '' ? null : intval($_POST['score']);
+    $score = $_POST['score'] === '' ? null : intval($_POST['score']);
     $comment = trim($_POST['comment']);
-    $upRec = $pdo->prepare("UPDATE answer_record SET score=?,comment=? WHERE id=?");
-    $upRec->execute([$score, $comment, $arid]);
-    $msg = "批改保存成功";
+    $edit = $pdo->prepare("UPDATE answer_record SET score=?,comment=? WHERE id=?");
+    $edit->execute([$score, $comment, $arid]);
+    $msg = "批改记录已保存";
 }
 
-// 获取当前教师全部试卷
-$paperListStmt = $pdo->prepare("SELECT * FROM paper WHERE create_tid=? ORDER BY create_time DESC");
-$paperListStmt->execute([$tid]);
-$myPaper = $paperListStmt->fetchAll();
+// 获取自己创建的所有试卷
+$myPaperList = $pdo->prepare("SELECT * FROM paper WHERE create_tid=? ORDER BY create_time DESC");
+$myPaperList->execute([$tid]);
+$myPaper = $myPaperList->fetchAll();
 
 // 编辑试卷读取数据
-$editPaper = null;
+$editInfo = null;
 $editQuestions = [];
-if (isset($_GET['edit'])) {
+if (isset($_GET['edit']) && is_numeric($_GET['edit'])) {
     $eid = intval($_GET['edit']);
-    $ePaperStmt = $pdo->prepare("SELECT * FROM paper WHERE id=? AND create_tid=? LIMIT 1");
-    $ePaperStmt->execute([$eid, $tid]);
-    $editPaper = $ePaperStmt->fetch();
-    if ($editPaper) {
-        $qStmt = $pdo->prepare("SELECT * FROM question WHERE paper_id=? ORDER BY q_no");
-        $qStmt->execute([$eid]);
-        $editQuestions = $qStmt->fetchAll();
+    $getPaper = $pdo->prepare("SELECT * FROM paper WHERE id=? AND create_tid=? LIMIT 1");
+    $getPaper->execute([$eid, $tid]);
+    $editInfo = $getPaper->fetch();
+    // 只有周常才读取题目
+    if ($editInfo && $editInfo['paper_type'] == 2) {
+        $qList = $pdo->prepare("SELECT * FROM question WHERE paper_id=? ORDER BY q_no");
+        $qList->execute([$eid]);
+        $editQuestions = $qList->fetchAll();
     }
 }
 
-// 查看试卷对应的学生作答（修复看不到作答、权限校验）
-$viewRecList = [];
-$viewPaperTitle = '';
+// 查看学生提交作答记录
+$viewRec = [];
+$viewPaperName = '';
 if (isset($_GET['view']) && is_numeric($_GET['view'])) {
     $vid = intval($_GET['view']);
-    $checkPaper = $pdo->prepare("SELECT title FROM paper WHERE id=? AND create_tid=? LIMIT 1");
-    $checkPaper->execute([$vid, $tid]);
-    $paperInfo = $checkPaper->fetch();
-    if ($paperInfo) {
-        $viewPaperTitle = $paperInfo['title'];
-        $recStmt = $pdo->prepare("
-            SELECT ar.id,ar.stu_answer,ar.score,ar.comment,ar.submit_time,u.username
+    $checkOwn = $pdo->prepare("SELECT title FROM paper WHERE id=? AND create_tid=?");
+    $checkOwn->execute([$vid, $tid]);
+    $paperData = $checkOwn->fetch();
+    if ($paperData) {
+        $viewPaperName = $paperData['title'];
+        // 关联用户查看提交内容
+        $recSql = "
+            SELECT ar.id,ar.stu_answer,ar.card_img,ar.score,ar.comment,ar.submit_time,u.username
             FROM answer_record ar
             LEFT JOIN cho_user u ON ar.uid = u.id
             WHERE ar.paper_id = ?
             ORDER BY ar.submit_time DESC
-        ");
+        ";
+        $recStmt = $pdo->prepare($recSql);
         $recStmt->execute([$vid]);
-        $viewRecList = $recStmt->fetchAll();
+        $viewRec = $recStmt->fetchAll();
     } else {
-        $msg = "该试卷不属于你，无访问权限";
+        $msg = "无权查看该试卷作答";
     }
 }
 ?>
@@ -157,7 +208,7 @@ if (isset($_GET['view']) && is_numeric($_GET['view'])) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>教师后台 - LunaticChO</title>
+<title>教师后台管理 | LunaticChO</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
 <script>
@@ -166,54 +217,30 @@ tailwind.config = {
         extend: {
             colors: {
                 primary: '#0d9488',
-                borderColor: '#d1d5db',
-                textSub: '#6b7280'
+                border: '#d1d5db',
+                textGray: '#6b7280'
             }
         }
     }
 }
 </script>
 <style>
-.card {
-    background: #fff;
-    border: 1px solid #d1d5db;
-    border-radius: 8px;
-    padding: 20px;
-    box-shadow: 0 1px 3px #eee;
-}
-.btn {
-    padding: 8px 14px;
-    border-radius: 6px;
-    font-size: 14px;
-    cursor: pointer;
-    border: 0;
-}
-.btn-primary {
-    background: #0d9488;
-    color: #fff;
-}
-.btn-gray {
-    background: #eee;
-}
-.btn-red {
-    background: #ef4444;
-    color: #fff;
-}
-.question-block {
-    border: 1px dashed #cccccc;
-    padding: 16px;
-    border-radius: 6px;
-    margin-bottom: 12px;
-}
+.box{background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:20px;box-shadow:0 1px 4px #eee;}
+.btn{padding:8px 14px;border-radius:6px;font-size:14px;border:none;cursor:pointer;}
+.btn-main{background:#0d9488;color:#fff;}
+.btn-gray{background:#eee;color:#333;}
+.btn-red{background:#ef4444;color:#fff;}
+.question-block{border:1px dashed #ccc;padding:16px;border-radius:6px;margin:12px 0;}
+.tab-active{border-b-2px solid #0d9488;color:#0d9488;}
 </style>
 </head>
 <body class="bg-gray-100 min-h-screen p-4 md:p-8">
-<div class="max-w-7xl mx-auto">
-    <!-- 头部导航 -->
-    <div class="flex justify-between items-center mb-6">
+<div class="max-w-6xl mx-auto">
+    <!-- 顶部头部 -->
+    <div class="flex flex-wrap justify-between items-center mb-6 gap-4">
         <div>
             <h1 class="text-2xl font-bold">教师管理后台</h1>
-            <p class="text-textSub">当前登录账号：<?php echo htmlspecialchars($tname); ?></p>
+            <p class="text-textGray">当前登录：<?=htmlspecialchars($tname)?></p>
         </div>
         <div class="flex gap-3">
             <a href="index.php" class="btn btn-gray">返回首页</a>
@@ -223,190 +250,225 @@ tailwind.config = {
 
     <!-- 提示消息 -->
     <?php if (!empty($msg)): ?>
-    <div class="mb-4 p-3 rounded <?php echo str_contains($msg, '成功') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'; ?>">
-        <?php echo htmlspecialchars($msg); ?>
+    <div class="mb-4 p-3 rounded <?=str_contains($msg,'成功') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'?>">
+        <?=htmlspecialchars($msg)?>
     </div>
     <?php endif; ?>
 
-    <!-- 标签切换 -->
-    <div class="flex gap-2 mb-6 border-b border-borderColor pb-2">
-        <a href="#notice" class="px-3 py-2 hover:text-primary">发布公告</a>
-        <a href="#paper_add" class="px-3 py-2 hover:text-primary"><?php echo $editPaper ? '编辑整套试卷' : '新建整套试卷'; ?></a>
-        <a href="#paper_list" class="px-3 py-2 hover:text-primary">我的全部试卷</a>
+    <!-- 标签切换栏 -->
+    <div class="flex gap-6 border-b border-border pb-2 mb-6">
+        <a href="#notice" class="py-2 cursor-pointer hover:text-primary">发布平台公告</a>
+        <a href="#paper_edit" class="py-2 cursor-pointer hover:text-primary tab-active">新建/编辑试卷</a>
+        <a href="#paper_list" class="py-2 cursor-pointer hover:text-primary">我的全部试卷</a>
     </div>
 
-    <!-- 1、发布公告区域 -->
-    <section id="notice" class="card mb-6">
-        <h2 class="text-lg font-semibold mb-4">发布平台公告</h2>
+    <!-- 模块1：发布公告 -->
+    <section id="notice" class="box mb-6">
+        <h2 class="text-lg font-semibold mb-4">发布全站公告</h2>
         <form method="post">
-            <textarea name="content" rows="4" class="w-full border border-borderColor rounded p-3" placeholder="输入公告内容，所有学生首页可见"></textarea>
-            <button name="save_notice" type="submit" class="btn btn-primary mt-3">发布公告</button>
+            <textarea name="content" rows="4" class="w-full border border-border rounded p-3" placeholder="输入公告内容，所有学生首页可见"></textarea>
+            <button name="save_notice" type="submit" class="btn btn-main mt-3">发布公告</button>
         </form>
     </section>
 
-    <!-- 2、新建/编辑试卷（多题目动态表单） -->
-    <section id="paper_add" class="card mb-6">
+    <!-- 模块2：新建/编辑试卷【核心区分联考周常】 -->
+    <section id="paper_edit" class="box mb-6">
         <h2 class="text-lg font-semibold mb-4">
-            <?php echo $editPaper ? '编辑已有试卷（可修改所有题目）' : '创建新试卷（支持多题型+图片上传）'; ?>
+            <?= $editInfo ? '编辑试卷' : '创建新试卷' ?>
         </h2>
         <form method="post" id="paperForm">
-            <?php if ($editPaper): ?>
-                <input type="hidden" name="pid" value="<?php echo $editPaper['id']; ?>">
+            <?php if ($editInfo): ?>
+                <input type="hidden" name="pid" value="<?=$editInfo['id']?>">
             <?php endif; ?>
-            <!-- 试卷基础信息 -->
+
+            <!-- 基础通用信息 -->
             <div class="grid md:grid-cols-3 gap-4 mb-6">
                 <div>
                     <label class="block text-sm mb-1 font-medium">试卷标题</label>
-                    <input type="text" name="title" required class="w-full border border-borderColor rounded p-2" value="<?php echo $editPaper ? htmlspecialchars($editPaper['title']) : ''; ?>">
+                    <input type="text" name="title" required class="w-full border border-border rounded p-2"
+                    value="<?= $editInfo ? htmlspecialchars($editInfo['title']) : '' ?>">
                 </div>
                 <div>
-                    <label class="block text-sm mb-1 font-medium">试卷分类</label>
-                    <select name="paper_type" class="w-full border border-borderColor rounded p-2">
-                        <option value="1" <?php echo ($editPaper && $editPaper['paper_type'] == 1) ? 'selected' : ''; ?>>联考大考</option>
-                        <option value="2" <?php echo ($editPaper && $editPaper['paper_type'] == 2) ? 'selected' : ''; ?>>周常小测</option>
+                    <label class="block text-sm mb-1 font-medium">试卷类型</label>
+                    <select name="paper_type" id="typeSelect" class="w-full border border-border rounded p-2">
+                        <option value="1" <?= ($editInfo && $editInfo['paper_type'] == 1) ? 'selected' : '' ?>>联考（上传PDF文件）</option>
+                        <option value="2" <?= ($editInfo && $editInfo['paper_type'] == 2) ? 'selected' : '' ?>>周常小测（在线出题）</option>
                     </select>
                 </div>
                 <div>
                     <label class="block text-sm mb-1 font-medium">考试限时（分钟）</label>
-                    <input type="number" name="time_limit" class="w-full border border-borderColor rounded p-2" value="<?php echo $editPaper ? $editPaper['time_limit'] : 60; ?>">
+                    <input type="number" name="time_limit" class="w-full border border-border rounded p-2"
+                    value="<?= $editInfo ? $editInfo['time_limit'] : 60 ?>">
                 </div>
             </div>
+
             <div class="mb-6">
                 <label class="inline-flex items-center gap-2">
-                    <input type="checkbox" name="is_publish" <?php echo ($editPaper && $editPaper['is_publish']) ? 'checked' : ''; ?>>
-                    立即发布（勾选后学生首页可见，不勾选仅保存草稿）
+                    <input type="checkbox" name="is_publish" <?= ($editInfo && $editInfo['is_publish']) ? 'checked' : '' ?>>
+                    立即发布（勾选学生端可见，不勾选仅草稿保存）
                 </label>
             </div>
 
-            <hr class="my-6 border-borderColor">
-            <h3 class="font-bold text-lg mb-4">题目列表（自定义题号、配图、多题型）</h3>
-            <div id="questionWrap">
-                <?php if (!empty($editQuestions)): ?>
-                    <?php foreach ($editQuestions as $q): ?>
-                    <div class="question-block">
-                        <div class="flex justify-between mb-3">
-                            <span class="font-medium">题目</span>
-                            <button type="button" onclick="delBlock(this)" class="btn btn-red text-xs">删除本题</button>
-                        </div>
-                        <div class="grid md:grid-cols-3 gap-3 mb-3">
-                            <div>
-                                <label class="text-sm">自定义题号</label>
-                                <input type="text" name="q_no[]" value="<?php echo htmlspecialchars($q['q_no']); ?>" required class="w-full border rounded p-2">
-                            </div>
-                            <div>
-                                <label class="text-sm">题型</label>
-                                <select name="q_type[]" class="w-full border rounded p-2">
-                                    <option value="1" <?php echo $q['q_type'] == 1 ? 'selected' : ''; ?>>填空题</option>
-                                    <option value="2" <?php echo $q['q_type'] == 2 ? 'selected' : ''; ?>>主观问答</option>
-                                    <option value="3" <?php echo $q['q_type'] == 3 ? 'selected' : ''; ?>>计算题</option>
-                                    <option value="4" <?php echo $q['q_type'] == 4 ? 'selected' : ''; ?>>简答题</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="text-sm">本题分值</label>
-                                <input type="number" name="q_score[]" value="<?php echo $q['score']; ?>" required class="w-full border rounded p-2">
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label class="text-sm">题干内容</label>
-                            <textarea name="q_content[]" rows="3" required class="w-full border rounded p-2"><?php echo htmlspecialchars($q['content']); ?></textarea>
-                        </div>
-                        <div class="mb-3">
-                            <label class="text-sm">题目配图（选填，≤5MB）</label>
-                            <input type="hidden" name="q_img[]" value="<?php echo htmlspecialchars($q['img_path']); ?>" class="imgInput">
-                            <div class="flex gap-3 items-center mt-1">
-                                <input type="file" class="uploadImg" accept="image/jpeg,image/jpg,image/png,image/gif">
-                                <span class="text-xs text-textSub">选择图片自动上传填充</span>
-                                <?php if (!empty($q['img_path'])): ?>
-                                    <img src="<?php echo $q['img_path']; ?>" class="h-16 border">
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                        <div>
-                            <label class="text-sm">本题参考答案（仅教师后台可见）</label>
-                            <textarea name="q_answer[]" rows="2" class="w-full border rounded p-2"><?php echo htmlspecialchars($q['answer']); ?></textarea>
-                        </div>
+            <!-- ========== 联考区域：仅填写两个PDF文件名 ========== -->
+            <div id="examArea" class="hidden border-t pt-6 mt-6">
+                <h3 class="font-bold text-lg mb-4 text-orange-600">联考设置（无需录入题目）</h3>
+                <p class="text-sm text-textGray mb-4">
+                    PDF文件请提前上传到网站 <b>pdf/</b> 文件夹内，只需要填写文件名即可<br>
+                    例：试卷文件命名 chem_exam1.pdf 直接填写 chem_exam1.pdf
+                </p>
+                <div class="grid md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm mb-1">试卷PDF文件名</label>
+                        <input type="text" name="pdf_paper" class="w-full border rounded p-2"
+                        value="<?= $editInfo ? htmlspecialchars($editInfo['download_paper']) : '' ?>" placeholder="如：高三联考一卷.pdf">
                     </div>
-                    <?php endforeach; ?>
-                <?php endif; ?>
+                    <div>
+                        <label class="block text-sm mb-1">答题卡PDF文件名</label>
+                        <input type="text" name="pdf_card" class="w-full border rounded p-2"
+                        value="<?= $editInfo ? htmlspecialchars($editInfo['download_card']) : '' ?>" placeholder="如：答题卡1.pdf">
+                    </div>
+                </div>
             </div>
-            <button type="button" onclick="addQuestionBlock()" class="btn btn-gray mb-4">+ 添加一道新题目</button>
-            <hr class="my-6 border-borderColor">
+
+            <!-- ========== 周常区域：出题、上传图片整套表单 ========== -->
+            <div id="weekArea" class="border-t pt-6 mt-6">
+                <h3 class="font-bold text-lg mb-4 text-primary">周常题目编辑区域</h3>
+                <div id="questionWrap">
+                    <?php if (!empty($editQuestions)): ?>
+                        <?php foreach ($editQuestions as $q): ?>
+                        <div class="question-block">
+                            <div class="flex justify-between mb-3">
+                                <span class="font-medium">题目区块</span>
+                                <button type="button" onclick="delItem(this)" class="btn btn-red text-xs">删除本题</button>
+                            </div>
+                            <div class="grid md:grid-cols-3 gap-3 mb-3">
+                                <div>
+                                    <label class="text-sm">题号</label>
+                                    <input type="text" name="q_no[]" required value="<?=htmlspecialchars($q['q_no'])?>" class="w-full border rounded p-2">
+                                </div>
+                                <div>
+                                    <label class="text-sm">题型</label>
+                                    <select name="q_type[]" class="w-full border rounded p-2">
+                                        <option value="1" <?=$q['q_type']==1?'selected':''?>>填空题</option>
+                                        <option value="2" <?=$q['q_type']==2?'selected':''?>>主观问答</option>
+                                        <option value="3" <?=$q['q_type']==3?'selected':''?>>计算题</option>
+                                        <option value="4" <?=$q['q_type']==4?'selected':''?>>简答题</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-sm">分值</label>
+                                    <input type="number" name="q_score[]" required value="<?=$q['score']?>" class="w-full border rounded p-2">
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="text-sm">题干内容</label>
+                                <textarea name="q_content[]" rows="3" required class="w-full border rounded p-2"><?=htmlspecialchars($q['content'])?></textarea>
+                            </div>
+                            <div class="mb-3">
+                                <label class="text-sm">题目配图（选填）</label>
+                                <input type="hidden" name="q_img[]" value="<?=htmlspecialchars($q['img_path'])?>" class="imgVal">
+                                <div class="flex gap-3 items-center mt-1">
+                                    <input type="file" class="uploadImg" accept="image/jpeg,image/png,image/gif">
+                                    <span class="text-xs text-textGray">选择图片自动上传填充</span>
+                                    <?php if (!empty($q['img_path'])): ?>
+                                        <img src="<?=htmlspecialchars($q['img_path'])?>" class="h-16 border">
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="text-sm">参考答案（教师后台可见）</label>
+                                <textarea name="q_answer[]" rows="2" class="w-full border rounded p-2"><?=htmlspecialchars($q['answer'])?></textarea>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+                <button type="button" onclick="addQuestion()" class="btn btn-gray my-4">+ 添加一道新题目</button>
+            </div>
+
+            <hr class="my-6 border-border">
             <div class="flex gap-3">
-                <button name="save_full_paper" type="submit" class="btn btn-primary">保存整套试卷（自动汇总总分）</button>
-                <?php if ($editPaper): ?>
-                    <a href="admin.php#paper_add" class="btn btn-gray">取消编辑</a>
+                <button name="save_paper" type="submit" class="btn btn-main">保存整套试卷</button>
+                <?php if ($editInfo): ?>
+                    <a href="admin.php#paper_edit" class="btn btn-gray">取消编辑</a>
                 <?php endif; ?>
             </div>
         </form>
     </section>
 
-    <!-- 3、我的试卷列表 -->
-    <section id="paper_list" class="card mb-6">
-        <h2 class="text-lg font-semibold mb-4">我创建的全部试卷</h2>
+    <!-- 模块3：我的试卷列表 -->
+    <section id="paper_list" class="box">
+        <h2 class="text-lg font-semibold mb-4">我创建的所有试卷</h2>
         <?php if (empty($myPaper)): ?>
-            <p class="text-textSub">你还没有创建任何试卷</p>
+            <p class="text-textGray">暂无创建过试卷</p>
         <?php else: ?>
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
                 <thead class="bg-gray-50">
                     <tr>
                         <th class="p-3 text-left">试卷名称</th>
-                        <th class="p-3 text-left">分类</th>
+                        <th class="p-3 text-left">类型</th>
                         <th class="p-3 text-left">总分</th>
-                        <th class="p-3 text-left">发布状态</th>
+                        <th class="p-3 text-left">状态</th>
                         <th class="p-3 text-left">操作</th>
                     </tr>
                 </thead>
                 <tbody>
-                <?php foreach ($myPaper as $p): ?>
-                <tr class="border-t border-borderColor">
-                    <td class="p-3"><?php echo htmlspecialchars($p['title']); ?></td>
-                    <td class="p-3"><?php echo $p['paper_type'] == 1 ? '联考' : '周常'; ?></td>
-                    <td class="p-3"><?php echo $p['full_score']; ?> 分</td>
-                    <td class="p-3">
-                        <?php if ($p['is_publish'] == 1): ?>
-                            <span class="text-green-600">已发布</span>
-                        <?php else: ?>
-                            <span class="text-orange-500">草稿</span>
-                        <?php endif; ?>
-                    </td>
-                    <td class="p-3 flex gap-2">
-                        <a href="?edit=<?php echo $p['id']; ?>#paper_add" class="btn btn-gray text-xs">编辑整套</a>
-                        <a href="?view=<?php echo $p['id']; ?>#record_view" class="btn btn-primary text-xs">查看学生作答</a>
-                    </td>
-                </tr>
-                <?php endforeach; ?>
+                    <?php foreach ($myPaper as $p): ?>
+                    <tr class="border-t border-border">
+                        <td class="p-3"><?=htmlspecialchars($p['title'])?></td>
+                        <td class="p-3"><?=$p['paper_type'] == 1 ? '联考(PDF)' : '周常小测'?></td>
+                        <td class="p-3"><?=$p['full_score']?> 分</td>
+                        <td class="p-3">
+                            <?=$p['is_publish'] == 1 ? '<span class="text-green-600">已发布</span>' : '<span class="text-amber-500">草稿</span>'?>
+                        </td>
+                        <td class="p-3 flex gap-2">
+                            <a href="?edit=<?=$p['id']?>#paper_edit" class="btn btn-gray text-xs">编辑</a>
+                            <a href="?view=<?=$p['id']?>#paper_edit" class="btn btn-main text-xs">查看作答记录</a>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
                 </tbody>
             </table>
         <?php endif; ?>
     </section>
 
-    <!-- 4、学生作答批改区域 -->
-    <?php if (isset($_GET['view']) && !empty($viewRecList)): ?>
-    <section id="record_view" class="card">
-        <h2 class="text-lg font-semibold mb-4">学生作答列表 - <?php echo htmlspecialchars($viewPaperTitle); ?></h2>
-        <?php foreach ($viewRecList as $rec): ?>
-        <div class="border border-borderColor rounded p-4 mb-4">
+    <!-- 查看学生作答批改区域 -->
+    <?php if (!empty($viewRec)): ?>
+    <section class="box mt-6">
+        <h2 class="text-lg font-semibold mb-4">学生作答记录 — <?=htmlspecialchars($viewPaperName)?></h2>
+        <?php foreach ($viewRec as $item): ?>
+        <div class="border border-border rounded p-4 mb-4">
             <div class="flex justify-between mb-2">
-                <span class="font-medium">学生：<?php echo htmlspecialchars($rec['username']); ?></span>
-                <span class="text-textSub">提交时间：<?php echo $rec['submit_time']; ?></span>
+                <span class="font-medium">学生：<?=htmlspecialchars($item['username'])?></span>
+                <span class="text-textGray text-sm">提交时间：<?=$item['submit_time']?></span>
             </div>
-            <div class="bg-gray-50 p-3 rounded mb-3 whitespace-pre-wrap text-sm">
-                <?php echo htmlspecialchars($rec['stu_answer']); ?>
-            </div>
+
+            <!-- 区分联考答题卡图片 / 周常文字作答 -->
+            <?php if (!empty($item['card_img'])): ?>
+                <div class="mb-3 p-3 bg-gray-50 rounded">
+                    <p class="text-sm mb-2">上传答题卡：</p>
+                    <a href="<?=htmlspecialchars($item['card_img'])?>" target="_blank" class="text-blue-600 underline">点击查看答题卡原图</a>
+                </div>
+            <?php else: ?>
+                <div class="mb-3 p-3 bg-gray-50 rounded whitespace-pre-wrap text-sm">
+                    <?php echo htmlspecialchars($item['stu_answer']); ?>
+                </div>
+            <?php endif; ?>
+
+            <!-- 打分评语表单 -->
             <form method="post" class="grid md:grid-cols-12 gap-3 items-end">
-                <input type="hidden" name="arid" value="<?php echo $rec['id']; ?>">
+                <input type="hidden" name="arid" value="<?=$item['id']?>">
                 <div class="md:col-span-2">
-                    <label class="text-sm block">得分</label>
-                    <input type="number" name="score" class="w-full border border-borderColor rounded p-2" value="<?php echo $rec['score']; ?>">
+                    <label class="text-sm block mb-1">得分</label>
+                    <input type="number" name="score" class="w-full border rounded p-2" value="<?=$item['score']?>">
                 </div>
                 <div class="md:col-span-8">
-                    <label class="text-sm block">教师评语</label>
-                    <input type="text" name="comment" class="w-full border border-borderColor rounded p-2" value="<?php echo htmlspecialchars($rec['comment']); ?>" placeholder="填写评语">
+                    <label class="text-sm block mb-1">教师评语</label>
+                    <input type="text" name="comment" class="w-full border rounded p-2" value="<?=htmlspecialchars($item['comment'])?>" placeholder="填写评语">
                 </div>
                 <div class="md:col-span-2">
-                    <button name="score_submit" type="submit" class="btn btn-primary w-full">保存批改</button>
+                    <button name="save_score" type="submit" class="btn btn-main w-full">保存批改</button>
                 </div>
             </form>
         </div>
@@ -416,19 +478,36 @@ tailwind.config = {
 </div>
 
 <script>
-// 动态新增题目区块
-function addQuestionBlock() {
+// 切换试卷类型 显示对应表单区域
+const typeSelect = document.getElementById('typeSelect');
+const examArea = document.getElementById('examArea');
+const weekArea = document.getElementById('weekArea');
+
+function toggleArea(){
+    if(typeSelect.value == '1'){
+        examArea.classList.remove('hidden');
+        weekArea.classList.add('hidden');
+    }else{
+        examArea.classList.add('hidden');
+        weekArea.classList.remove('hidden');
+    }
+}
+toggleArea();
+typeSelect.onchange = toggleArea;
+
+// 周常：新增题目区块
+function addQuestion(){
     const wrap = document.getElementById('questionWrap');
     const html = `
     <div class="question-block">
         <div class="flex justify-between mb-3">
-            <span class="font-medium">题目</span>
-            <button type="button" onclick="delBlock(this)" class="btn btn-red text-xs">删除本题</button>
+            <span class="font-medium">题目区块</span>
+            <button type="button" onclick="delItem(this)" class="btn btn-red text-xs">删除本题</button>
         </div>
         <div class="grid md:grid-cols-3 gap-3 mb-3">
             <div>
-                <label class="text-sm">自定义题号</label>
-                <input type="text" name="q_no[]" required class="w-full border rounded p-2" placeholder="如：1、2(1)、计算题一">
+                <label class="text-sm">题号</label>
+                <input type="text" name="q_no[]" required class="w-full border rounded p-2" placeholder="1、(1)">
             </div>
             <div>
                 <label class="text-sm">题型</label>
@@ -440,24 +519,24 @@ function addQuestionBlock() {
                 </select>
             </div>
             <div>
-                <label class="text-sm">本题分值</label>
-                <input type="number" name="q_score[]" required class="w-full border rounded p-2" value="10">
+                <label class="text-sm">分值</label>
+                <input type="number" name="q_score[]" required value="10" class="w-full border rounded p-2">
             </div>
         </div>
         <div class="mb-3">
             <label class="text-sm">题干内容</label>
-            <textarea name="q_content[]" rows="3" required class="w-full border rounded p-2" placeholder="输入题干"></textarea>
+            <textarea name="q_content[]" rows="3" required class="w-full border rounded p-2"></textarea>
         </div>
         <div class="mb-3">
-            <label class="text-sm">题目配图（选填，≤5MB）</label>
-            <input type="hidden" name="q_img[]" value="" class="imgInput">
+            <label class="text-sm">题目配图</label>
+            <input type="hidden" name="q_img[]" value="" class="imgVal">
             <div class="flex gap-3 items-center mt-1">
-                <input type="file" class="uploadImg" accept="image/jpeg,image/jpg,image/png,image/gif">
-                <span class="text-xs text-textSub">选择图片自动上传填充</span>
+                <input type="file" class="uploadImg" accept="image/jpeg,image/png,image/gif">
+                <span class="text-xs text-gray-500">选择图片自动上传</span>
             </div>
         </div>
         <div>
-            <label class="text-sm">本题参考答案（教师后台可见）</label>
+            <label class="text-sm">参考答案</label>
             <textarea name="q_answer[]" rows="2" class="w-full border rounded p-2"></textarea>
         </div>
     </div>
@@ -465,51 +544,48 @@ function addQuestionBlock() {
     wrap.insertAdjacentHTML('beforeend', html);
     bindUpload();
 }
-// 删除题目区块
-function delBlock(btn) {
+// 删除题目
+function delItem(btn){
     btn.closest('.question-block').remove();
 }
-// AJAX图片上传绑定【修复fetch配置，上传必有响应】
-function bindUpload() {
-    const uploadInputs = document.querySelectorAll('.uploadImg');
-    uploadInputs.forEach(input => {
-        input.onchange = async function () {
+
+// 图片上传绑定
+function bindUpload(){
+    document.querySelectorAll('.uploadImg').forEach(input=>{
+        input.onchange = async function(){
             const file = this.files[0];
-            if (!file) return;
-            // 前端大小校验5MB
-            if (file.size > 5 * 1024 * 1024) {
+            if(!file) return;
+            if(file.size > 5*1024*1024){
                 alert('图片不能超过5MB');
                 this.value = '';
                 return;
             }
-            const formData = new FormData();
-            formData.append('qimg', file);
-            try {
-                // 关键修复：fetch增加跨域/缓存配置
-                const res = await fetch('admin.php', {
-                    method: 'POST',
-                    cache: 'no-cache',
-                    credentials: 'same-origin',
-                    body: formData
+            const fd = new FormData();
+            fd.append('qimg', file);
+            try{
+                const res = await fetch('admin.php',{
+                    method:'POST',
+                    credentials:'same-origin',
+                    cache:'no-cache',
+                    body:fd
                 });
                 const data = await res.json();
-                if (data.code === 1) {
-                    this.parentElement.querySelector('.imgInput').value = data.path;
-                    alert('图片上传成功！');
-                    // 回显图片
-                    let imgDom = this.parentElement.querySelector('img');
-                    if (!imgDom) {
-                        imgDom = document.createElement('img');
-                        imgDom.className = 'h-16 border';
-                        this.parentElement.appendChild(imgDom);
+                if(data.code === 1){
+                    this.parentElement.querySelector('.imgVal').value = data.path;
+                    alert('图片上传成功');
+                    // 预览图片
+                    let preview = this.parentElement.querySelector('img');
+                    if(!preview){
+                        preview = document.createElement('img');
+                        preview.className = 'h-16 border';
+                        this.parentElement.appendChild(preview);
                     }
-                    imgDom.src = data.path;
-                } else {
+                    preview.src = data.path;
+                }else{
                     alert(data.msg);
                 }
-            } catch (err) {
-                alert('上传请求失败：网络/服务器权限异常');
-                console.error(err);
+            }catch(err){
+                alert('上传请求失败');
             }
         }
     })
